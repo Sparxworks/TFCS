@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<UMLProfile profiletype="uml2">
+	<Documentation id="9D886A1B-6" name="TFCS" version="1.0" notes="TFCS"/>
+	<Content>
+		<Stereotypes>
+			<Stereotype name="TFCS_FlowDiagram" alias="Flow diagram" notes="" cx="244" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="Diagram_Activity">
+						<Property name="alias" value="Flow"/>
+						<Property name="diagramID" value="Flow"/>
+						<Property name="pdata" value="HideEStereo=1"/>
+						<Property name="toolbox" value="TFCS Flow toolbox"/>
+					</Apply>
+				</AppliesTo>
+			</Stereotype>
+			<Stereotype name="TFCS_RequirementsDiagram" alias="Requirements diagram" notes="" cx="244" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="Diagram_Custom">
+						<Property name="alias" value="Requirements"/>
+						<Property name="diagramID" value="Requirements"/>
+						<Property name="pdata" value="HideEStereo=1;"/>
+						<Property name="toolbox" value="TFCS Requirements toolbox"/>
+					</Apply>
+				</AppliesTo>
+			</Stereotype>
+			<Stereotype name="TFCS_MaintenanceDiagram" alias="Beheer" notes="" cx="244" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="Diagram_Custom">
+						<Property name="alias" value="Beheer"/>
+						<Property name="diagramID" value="Beheer"/>
+						<Property name="pdata" value="HideEStereo=1;"/>
+						<Property name="toolbox" value="TFCS Maintenance toolbox"/>
+					</Apply>
+				</AppliesTo>
+			</Stereotype>
+			<Stereotype name="TFCS_DomainDiagram" alias="Domein model" notes="" cx="244" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="Diagram_Class">
+						<Property name="alias" value="Domein"/>
+						<Property name="diagramID" value="Domein"/>
+						<Property name="pdata" value="HideEStereo=1"/>
+						<Property name="toolbox" value="TFCS Domain toolbox"/>
+					</Apply>
+				</AppliesTo>
+			</Stereotype>
+			<Stereotype name="TFCS_FlowDefnDiagram" alias="Stap definitie" notes="" cx="244" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="Diagram_Use Case">
+						<Property name="alias" value="FlowDefn"/>
+						<Property name="diagramID" value="FlowDefn"/>
+						<Property name="pdata" value="HideEStereo=1"/>
+						<Property name="toolbox" value="TFCS FlowDefn toolbox"/>
+					</Apply>
+				</AppliesTo>
+			</Stereotype>
+		</Stereotypes>
+		<TaggedValueTypes/>
+	</Content>
+</UMLProfile>

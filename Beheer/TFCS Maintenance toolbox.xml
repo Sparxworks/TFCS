@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<UMLProfile profiletype="uml2">
+	<Documentation id="F194C4A0-7" name="TFCS Maintenance toolbox" version="1.0" alias="Beheer" notes="Alias=Beheer;"/>
+	<Content>
+		<Stereotypes>
+			<Stereotype name="TFCS Maintenance" alias="Beheerstaken" notes="" cx="335" cy="98" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_Ambiguity(UML::Issue)" type="" description="" unit="" values="" default="Onduidelijkheid"/>
+					<Tag name="TFCS::TFCS_Issue(UML::Issue)" type="" description="" unit="" values="" default="Bevinding"/>
+					<Tag name="TFCS::TFCS_Request(UML::Issue)" type="" description="" unit="" values="" default="Wens"/>
+					<Tag name="TFCS::TFCS_ReviewComment(UML::Issue)" type="" description="" unit="" values="" default="Reviewcommentaar"/>
+					<Tag name="TFCS::TFCS_TBD(UML::Issue)" type="" description="" unit="" values="" default="Open punt"/>
+				</TaggedValues>
+			</Stereotype>
+		</Stereotypes>
+		<TaggedValueTypes/>
+	</Content>
+</UMLProfile>

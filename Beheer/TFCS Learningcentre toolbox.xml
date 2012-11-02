@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<UMLProfile profiletype="uml2">
+	<Documentation id="C8A8C90F-9" name="TFCS Learningcentre toolbox" version="1.0" notes="TFCS Learningcentre toolbox"/>
+	<Content>
+		<Stereotypes>
+			<Stereotype name="TFCS shortcuts" alias="TFCS shortcuts" notes="" cx="414" cy="154" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="EAScriptingTools::Test()" type="String" description="noot" unit="" values="" default="Test"/>
+					<Tag name="EASystem::MenuCmd(AddDiagram)" type="" description="" unit="" values="" default="Nieuw diagram"/>
+					<Tag name="EASystem::ShowDoc(books\TFCS\xxx.rtf)" type="boolean" description="" unit="" values="true,false" default="Open RTF in de EA installatie folder"/>
+					<Tag name="EASystem::ShowDoc(e:\xxx.rtf)" type="boolean" description="" unit="" values="true,false" default="Open RTF in de EA installatie folder"/>
+					<Tag name="EASystem::ShowHelp(define_task_pane_toolboxes.htm)" type="" description="" unit="" values="" default="Learning centre help"/>
+					<Tag name="EASystem::ShowURL(www.google.com)" type="" description="" unit="" values="" default="Open google"/>
+					<Tag name="EASystem::ShowView(ViewSearch)" type="" description="" unit="" values="" default="Search window"/>
+					<Tag name="isCommon" type="int" description="" unit="" values="" default="true"/>
+				</TaggedValues>
+			</Stereotype>
+		</Stereotypes>
+		<TaggedValueTypes/>
+	</Content>
+</UMLProfile>
