@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="windows-1252"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <UMLProfile profiletype="uml2">
 	<Documentation id="6B796D36-A" name="TFCS Flow toolbox" version="1.0" alias="Flow" notes="Alias=Flow;"/>
 	<Content>
@@ -14,7 +14,7 @@
 					<Tag name="TFCS::TFCS_Activity(UML::Activity)" type="" description="" unit="" values="" default="Stap (subflow)"/>
 					<Tag name="TFCS::TFCS_Decision(UML::Decision)" type="" description="" unit="" values="" default="Splitsing"/>
 					<Tag name="TFCS::TFCS_MergeNode(UML::MergeNode)" type="" description="" unit="" values="" default="Samenvoeging"/>
-					<Tag name="TFCS::TFCS_ActivityFinal(UML::ActivityInitial)" type="" description="" unit="" values="" default="Eindpunt"/>
+					<Tag name="TFCS::TFCS_ActivityFinal(UML::ActivityFinal)" type="" description="" unit="" values="" default="Eindpunt"/>
 					<Tag name="TFCS::TFCS_IntermediateResult(UML::Object)" type="" description="" unit="" values="" default="Tussenresultaat"/>
 					<Tag name="TFCS::TFCS_Sketch(UML::Screen)" type="" description="" unit="" values="" default="Schermschets"/>
 				</TaggedValues>
