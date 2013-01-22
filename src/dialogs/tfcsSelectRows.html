@@ -1,0 +1,113 @@
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <link type="text/css" href="jq/css/redmond/jquery-ui-1.8.22.custom.css" rel="stylesheet" />
+  <script type="text/javascript" src="jq/js/jquery-1.7.2.min.js"></script>
+  <script type="text/javascript" src="jq/js/jquery-ui-1.8.22.custom.min.js"></script>
+
+<script type="text/javascript">
+    if(window.external.dict.item("multiselect") == 1){
+	document.write("<style> #selectable .ui-selecting { background:#A0E0FF; } </style>");
+    }else{
+	document.write("<style> #selectable .ui-selecting { background:#0050FF; } </style>");
+    }
+</script>
+<style>
+	#selectable .ui-selected { background: #0050FF; color: white; }
+	#selectable { list-style-type: none; margin:0; padding: 0; width: 100%; background: #FFFFFF; }
+	#selectable li { margin: 2px; padding: 0.1em; font-size: 1.0em; height: 10px; }
+
+  </style>
+  <script type="text/javascript">
+	function EAST_SetDimensions(){
+		window.external.SetDimensions(200,300);
+	}
+
+
+    $(function() {
+	$( "#selectable" ).selectable({
+	    stop: function() {
+		var result = $( "#selectedItems" ).empty();
+		$( ".ui-selected", this ).each(function() {
+ 		    var index = $( "#selectable li" ).index( this );
+
+		    if(result.text() == "" ){
+		        result.append(""+(index+1) );
+		    }else if(window.external.dict.item("multiselect") == 1){
+		        result.append( "|" + (index+1) );
+		    }else{	
+		        $( this ).removeClass("ui-selected");
+		    }
+		});
+	    }
+
+ 	});
+    });
+
+
+    $(document).ready(function() {
+        onLoad();
+        $(function() {
+	  $("#OK").click(function() { 
+		if ($( "#selectedItems" ).text() == ""){
+    $("#dialog").dialog({
+        resizable: false,
+        modal: true,
+	height: 240,
+	draggable: false
+    });
+		}else{
+	          window.external.dict.add("RESULT",$( "#selectedItems" ).text());
+		    window.external.close();
+		}
+	  });
+	  $("#Annuleren").click(function() { 
+	      window.external.dict.add("RESULT","Cancelled");
+ 		window.external.close();
+	  });	  
+        });
+    });
+
+
+  </script>
+
+</head>
+
+
+
+
+<script type="text/javascript">
+    function onLoad(){
+	var list = document.getElementById("selectable");
+ 	for(i=0;i<window.external.dict.count-2;i++){
+		cols = window.external.dict.item(i)
+		var listItem = document.createElement("li");
+		list.appendChild(listItem);
+		listItem.appendChild(document.createTextNode(cols.item("NAME")));
+	}    }
+</script>
+
+<body style="background:#e9e9d8 !important;">
+<center><br>
+<div style="height:350px;width:95%;border:3px;border-style:inset;text-align:left; overflow:auto;">
+    <ol id="selectable" >
+    </ol>
+</div>
+<div>
+    <span id="selectedItems" style="visibility:hidden;"></span><br>
+    <input type="button" id="OK" value="OK" style="height: 25px; width: 100px"/> 
+    <input type="button" id="Annuleren" value="Annuleren" style="height: 25px; width: 100px" /> 
+</div>
+
+
+</center>
+<div id="dialog" style="display:none">
+  <p>
+     <center>Selecteer ten minste &#233;&#233;n item.</center>
+  </p>
+</div>
+
+
+</body>
+</html>
+

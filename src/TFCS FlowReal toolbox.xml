@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<UMLProfile profiletype="uml2">
+	<Documentation id="6B796D36-A" name="TFCS FlowReal toolbox" version="1.0" alias="Workflow realisatie" notes="Alias=Workflow realisatie;"/>
+	<Content>
+		<Stereotypes>
+			<Stereotype name="TFCS FlowReal" alias="Workflow realisatie" notes="" cx="353" cy="189" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_ActivityInitial(UML::ActivityInitial)" type="" description="" unit="" values="" default="Startpunt"/>
+					<Tag name="TFCS::TFCS_AtomicAction(UML::Action)" type="" description="" unit="" values="" default="Stap "/>
+					<Tag name="TFCS::TFCS_CompositeAction(UML::Action)" type="" description="" unit="" values="" default="Stap (complex)"/>
+					<Tag name="TFCS::TFCS_Action(UML::Action)" type="" description="" unit="" values="" default="Stap (workflow)"/>
+					<Tag name="TFCS::TFCS_DomainInstance(UML::Object)" type="" description="" unit="" values="" default="Domeinobject"/>
+					<Tag name="TFCS::TFCS_IntermediateResult(UML::Object)" type="" description="" unit="" values="" default="Tussenresultaat"/>
+					<Tag name="TFCS::TFCS_Decision(UML::Decision)" type="" description="" unit="" values="" default="Splitsing"/>
+					<Tag name="TFCS::TFCS_MergeNode(UML::MergeNode)" type="" description="" unit="" values="" default="Samenvoeging"/>
+					<Tag name="TFCS::TFCS_Event(UML::Event)" type="" description="" unit="" values="" default="Event"/>
+					<Tag name="TFCS::TFCS_ActivityFinal(UML::ActivityFinal)" type="" description="" unit="" values="" default="Eindpunt"/>
+				</TaggedValues>
+			</Stereotype>
+			<Stereotype name="TFCS Maintenance" alias="Beheerstaken" notes="" cx="335" cy="98" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_Issue(UML::Issue)" type="" description="" unit="" values="" default="Bevinding"/>
+					<Tag name="TFCS::TFCS_Request(UML::Issue)" type="" description="" unit="" values="" default="Wens"/>
+					<Tag name="TFCS::TFCS_TBD(UML::Issue)" type="" description="" unit="" values="" default="Open punt"/>
+					<Tag name="TFCS::TFCS_Ambiguity(UML::Issue)" type="" description="" unit="" values="" default="Onduidelijkheid"/>
+					<Tag name="TFCS::TFCS_ReviewComment(UML::Issue)" type="" description="" unit="" values="" default="Reviewcommentaar"/>
+				</TaggedValues>
+			</Stereotype>
+			<Stereotype name="Requirements" alias="Requirements" notes="Onderdelen van een Requirements diagram" cx="336" cy="85" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_AuthorisationEffect(UML::Object)" type="" description="" unit="" values="" default="Autorisatie effect"/>
+					<Tag name="TFCS::TFCS_Requirement(UML::Requirement)" type="" description="" unit="" values="" default="Functionele eis"/>
+					<Tag name="TFCS::TFCS_NFR(UML::Requirement)" type="" description="" unit="" values="" default="Niet-functionele eis"/>
+					<Tag name="TFCS::TFCS_Legislation(UML::Requirement)" type="" description="" unit="" values="" default="Wetgeving"/>
+				</TaggedValues>
+			</Stereotype>
+		</Stereotypes>
+		<TaggedValueTypes/>
+	</Content>
+</UMLProfile>

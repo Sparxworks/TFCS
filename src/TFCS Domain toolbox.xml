@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="windows-1252"?>
+<UMLProfile profiletype="uml2">
+	<Documentation id="6E32AE1C-D" name="TFCS Domain toolbox" version="1.0" alias="Domein" notes="Alias=Domein;"/>
+	<Content>
+		<Stereotypes>
+			<Stereotype name="TFCS Domain Toolbox" alias="Domein" notes="" cx="331" cy="67" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_DomainObject(UML::Class)" type="" description="" unit="" values="" default="Domeinobject"/>
+					<Tag name="TFCS::TFCS_DomainRule(UML::Requirement)" type="" description="" unit="" values="" default="Domeinregel"/>
+				</TaggedValues>
+			</Stereotype>
+			<Stereotype name="TFCS Maintenance" alias="Beheerstaken" notes="" cx="335" cy="98" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_Issue(UML::Issue)" type="" description="" unit="" values="" default="Bevinding"/>
+					<Tag name="TFCS::TFCS_Request(UML::Issue)" type="" description="" unit="" values="" default="Wens"/>
+					<Tag name="TFCS::TFCS_TBD(UML::Issue)" type="" description="" unit="" values="" default="Open punt"/>
+					<Tag name="TFCS::TFCS_Ambiguity(UML::Issue)" type="" description="" unit="" values="" default="Onduidelijkheid"/>
+					<Tag name="TFCS::TFCS_ReviewComment(UML::Issue)" type="" description="" unit="" values="" default="Reviewcommentaar"/>
+				</TaggedValues>
+			</Stereotype>
+			<Stereotype name="Requirements" alias="Requirements" notes="Onderdelen van een Requirements diagram" cx="333" cy="70" bgcolor="-1" fontcolor="-1" bordercolor="-1" borderwidth="-1" hideicon="0">
+				<AppliesTo>
+					<Apply type="ToolboxPage"/>
+				</AppliesTo>
+				<TaggedValues>
+					<Tag name="TFCS::TFCS_Requirement(UML::Requirement)" type="" description="" unit="" values="" default="Functionele eis"/>
+					<Tag name="TFCS::TFCS_NFR(UML::Requirement)" type="" description="" unit="" values="" default="Niet-functionele eis"/>
+					<Tag name="TFCS::TFCS_Legislation(UML::Requirement)" type="" description="" unit="" values="" default="Wetgeving"/>
+				</TaggedValues>
+			</Stereotype>
+		</Stereotypes>
+		<TaggedValueTypes/>
+	</Content>
+</UMLProfile>
