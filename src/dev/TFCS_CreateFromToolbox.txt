@@ -1,0 +1,1530 @@
+option explicit
+
+' Working directory for TFCS
+const TFCSBASEDIR = "d:/TFCS/src"
+const MNU_TFCSMAIN = "-EAST"
+
+'----------------------------------------------------------------------------------------------------------------------
+' DBMS specific settings (used in TFCS_SQL and TFCS_VALSQL)
+' Change according to the DBMS that is used
+'----------------------------------------------------------------------------------------------------------------------
+
+dim xWCx 		' wildcard
+dim xUCASEx 	' convert text to uppercase
+dim xMIDx		' get substring
+dim xMEMOx		' handling memo/clob fields
+
+' .EAP (MSAccess)
+
+xWCx = "*"	
+xUCASEx = "ucase"	
+xMIDx = "mid"
+xMEMOx = ""
+function xIfNullx(a,b)
+	xIfNullx = "IIF(ISNULL("+a+"),"+b+","+a+")"
+end function
+function xInStrx(start,s1,s2)
+	xInStrx = "InStr("+start+","+s1+","+s2+")"
+end function
+
+' Oracle
+
+'xWCx = "%"			
+'xUCASEx = "Upper"
+'xMIDx = "Substr"
+'xMEMOx = "dbms_lob."
+'
+'function IfNull(a,b)
+'	IfNull = "nvl("+a+","+b+")"
+'end function
+'
+'function InStr(start,s1,s2)
+'	InStr = "InStr("+s1+","+s2+","+start+")"
+'end function
+
+'----------------------------------------------------------------------------------------------------------------------
+' Module containing all SQL statements used.
+' SQL is grouped on referencing module and prefixed with part of the name of that module to prevent name clashes
+'----------------------------------------------------------------------------------------------------------------------
+
+' Returns all diagrams behind composite steps on a specific diagram
+Dim GEN_SQL_DGM_COMPLEXSTEPS: GEN_SQL_DGM_COMPLEXSTEPS = _
+" select d.diagram_id, d.ea_guid,o.name " &_
+" from t_diagram p, t_diagramobjects do" &_
+"	 ,t_object o" &_
+"	 ,t_object c" &_
+"	 ,t_diagram d" &_
+" where p.ea_guid = '{0}' and p.diagram_id = do.diagram_id" &_
+"	 and do.object_id = o.object_id" &_
+"	 and o.classifier = c.object_id" &_
+"	 and o.stereotype = 'TFCS_CompositeAction'" &_
+"	 and d.parentid = c.object_id"
+
+' =============================================================================
+' TFCS_ModelValidation
+' =============================================================================
+' Since there are quite a few: left in (the head of) the script file
+
+' =============================================================================
+' TFCS_DragDropHandler
+' =============================================================================
+dim SQL_GET_DIAGRAMOBJECT_RECT : SQL_GET_DIAGRAMOBJECT_RECT = _
+	"select rectleft,recttop,rectright,rectbottom from t_diagramobjects where diagram_id = {0} and object_id = {1}"
+
+' =============================================================================
+' TFCS_DocumentGeneration
+' =============================================================================
+
+' Returns all diagrams that contain a specific object (element)
+Dim DOCGEN_SQL_DIAGRAMSWITHELT: DOCGEN_SQL_DIAGRAMSWITHELT = _
+" select d.ea_guid as EA_GUID" &_
+"    ,d.diagram_id as ID" &_
+" from t_diagram d" &_
+"	 ,t_diagramobjects do" &_
+"	 ,t_object o" &_
+" where d.diagram_id = do.diagram_id" &_
+"	 and do.object_id = o.object_id" &_
+"	 and o.ea_guid = '{0}' order by d.name"
+
+' Returns all diagrams that contain a specific object (element) -as classifier-
+dim DOCGEN_SQL_DIAGRAMSWITHELTASCLASSIFIER: DOCGEN_SQL_DIAGRAMSWITHELTASCLASSIFIER = _
+" select d.ea_guid as EA_GUID" &_
+"    ,d.diagram_id as ID" &_
+" from t_diagram d" &_
+"	 ,t_diagramobjects do" &_
+"	 ,t_object o, t_object c" &_
+" where d.diagram_id = do.diagram_id" &_
+"	 and do.object_id = o.object_id and o.classifier = c.object_id" &_
+"	 and c.ea_guid = '{0}' order by  d.name"
+
+' Returns all elements (either notes or plain text) that are contained in boundary with name 'Toelichting'
+Dim DOCGEN_SQL_DGM_REMARKSFORDGM: DOCGEN_SQL_DGM_REMARKSFORDGM = _
+" select tlo.object_id " &_
+" from t_diagram d" &_
+"		,t_diagramobjects do" &_
+"		,t_object o" &_
+"		,t_diagramobjects tl" &_
+"		,t_object tlo" &_
+" where  tlo.object_id = tl.Object_ID" &_
+"		and tl.diagram_id = d.diagram_id" &_
+"		and o.object_id = do.object_id" &_
+"		and do.diagram_id = d.diagram_id" &_
+"		and "+xUCASEx+"(o.Name) = 'TOELICHTING' and o.object_type = 'Boundary'" &_
+"		and tlo.object_type in ('Note','Text')" &_
+"		and tl.RectTop <= do.RectTop " &_
+"		and tl.RectLeft >= do.RectLeft" &_
+"		and tl.RectRight <= do.RectRight" &_
+"		and tl.RectBottom >= do.RectBottom" &_
+"		and d.ea_guid = '{0}'"
+
+' =============================================================================
+' TFCS_Commons
+' =============================================================================
+dim SQL_GET_OBJECTPROPERTIES: SQL_GET_OBJECTPROPERTIES= _
+	"select XRefID,description as RESULT from t_xref where description like '@PROP"+xWCx+"' and client='{0}'"
+
+const SQL_UPD_OBJECTPROPERTIES = "update t_xref set description = '{1}' where XRefID = '{0}'"
+dim SQL_INS_OBJECTPROPERTIES: SQL_INS_OBJECTPROPERTIES = "insert into t_xref "&_
+		" (XRefID,name,type,visibility,Namespace,Requirement,Constraint,Behavior,partition,description,client,supplier,link)" &_
+		" values ('{0}','CustomProperties', 'element property', 'Public','','','','', 0, " &_
+		" '@PROP=@NAME={2}@ENDNAME;@TYPE={3}@ENDTYPE;@VALU={4}@ENDVALU;@PRMT={5}@ENDPRMT;@ENDPROP;', "&_
+		" '{1}','<none>','')"
+		
+dim COMM_SQL_DGMSBYSTEREO : COMM_SQL_DGMSBYSTEREO = _
+  " select "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name")))) +" "+"as"+" model " _
++ " , d.name " _
++ " , d.ea_guid " _
++ " from ((((((t_diagram d  ) " _
++ " inner join t_package pck0 on d.package_id = pck0.package_id) " _
++ " left join t_package pck1 on pck1.package_id = pck0.parent_id) " _
++ " left join t_package pck2 on pck2.package_id = pck1.parent_id) " _
++ " left join t_package pck3 on pck3.package_id = pck2.parent_id) " _
++ " left join t_package pck4 on pck4.package_id = pck3.parent_id) " _
++ " where d.StyleEx like '"+xWCx+"MDGDgm=TFCS::{0}"+xWCx+"' " _
++ " order by "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name"))))+", d.name"
+dim COMM_SQL_ELTSBYSTEREO_AND_TAG : COMM_SQL_ELTSBYSTEREO_AND_TAG = _
+ " select "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name")))) +" "+"as"+" model " _
++ " , tv.value " _
++ " , o.name " _
++ " , o.ea_guid " _
++ " from ((((((t_object o inner join t_objectproperties tv on tv.object_id = o.object_id  ) " _
++ " inner join t_package pck0 on o.package_id = pck0.package_id) " _
++ " left join t_package pck1 on pck1.package_id = pck0.parent_id) " _
++ " left join t_package pck2 on pck2.package_id = pck1.parent_id) " _
++ " left join t_package pck3 on pck3.package_id = pck2.parent_id) " _
++ " left join t_package pck4 on pck4.package_id = pck3.parent_id) " _
++ " where "+xUCASEx+"(o.Stereotype) = "+xUCASEx+"('{0}') " _
++ " 	and "+xUCASEx+"(tv.property) = "+xUCASEx+"('{1}') and " _
++xUCASEx+"('{2}') like '"+xWCx+"'+"+xUCASEx+"(tv.value)+'"+xWCx+"' and tv.value is not null" _
++ " order by "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name"))))+", tv.value, o.name"
+dim COMM_SQL_ELTSBYSTEREO : COMM_SQL_ELTSBYSTEREO = _
+ " select "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name")))) +" "+"as"+" model " _
++ " , o.name " _
++ " , o.ea_guid " _
++ " from ((((((t_object o  ) " _
++ " inner join t_package pck0 on o.package_id = pck0.package_id) " _
++ " left join t_package pck1 on pck1.package_id = pck0.parent_id) " _
++ " left join t_package pck2 on pck2.package_id = pck1.parent_id) " _
++ " left join t_package pck3 on pck3.package_id = pck2.parent_id) " _
++ " left join t_package pck4 on pck4.package_id = pck3.parent_id) " _
++ " where "+xUCASEx+"('{0}') like '"+xWCx+"'+"+xUCASEx+"(o.Stereotype)+'"+xWCx+"' and o.Stereotype is not null and o.object_id <> {1}" _
++ " order by "+xIfNullx("pck4.name",xIfNullx("pck3.name",xIfNullx("pck2.name", _
+	xIfNullx("pck1.name","pck0.name"))))+", o.name"
+dim COMM_SQL_GETMODELS : COMM_SQL_GETMODELS = "select name from t_package where parent_id = 0 and name <> 'TFCS' order by name"
+
+'----------------------------------------------------------------------------------------------------------------------
+' Module containing all texts used throughout TFCS -that are visible to the enduser- 
+' Texts are grouped on the referencing module and prefixed with a module identifier to prevent name clashes.
+'
+' NOTE: some texts are/can be referenced by several modules (like eg workspace name), 
+' this is indicated by a the prefix GEN with double underscore
+'----------------------------------------------------------------------------------------------------------------------
+
+' =============================================================================
+' TFCS_ModelValidation
+' =============================================================================
+const VAL_NO_RELATIONS_ALLOWED = "Dit element mag geen enkele relatie met andere elementen hebben. Leg de relatie op een andere manier."
+const VAL_ACT_ON_DGM = "Mag op geen enkel diagram voorkomen. Verwijder deze (als deze onderdeel vormt van een workflow: plaats deze vervolgens als stap (scherm/complex of subflow)."
+const VAL_ISSUE_NOT_REALISED = "Issue is nergens aan gerelateerd. Koppel deze aan het(de) modelelement(en) waarop deze betrekking heeft."
+const VAL_REQ_NOT_REALISED = "Requirement is niet gerealiseerd. Koppel de model element(en) die in deze requirement voorzien." 
+const VAL_UNKNOWN_STEREOTYPE = "Dit stereotype wordt nog niet gevalideerd: {0}. Neem contact op met de beheerder van TFCS."
+const VAL_ACTOR_UNUSED = "Actor is bij geen enkele workflow betrokken. Koppel de actor aan ten minste EEN workflow."
+const VAL_ELT_NOT_USED = "Domein instance wordt niet gebruikt. Neem deze op in een workflow of workflow definitie en koppel deze."
+const VAL_ELT_NOT_ON_DIAGRAM = "Het element is niet opgenomen in een diagram van type {0}."
+const VAL_WF_NOT_ON_UCDEFDGM = "Workflow is in geen enkele workflow specificatie opgenomen ({0})."
+const VAL_WF_NOT_ON_UCDGM = "Workflow is in geen enkel workflow overzicht opgenomen ({0})."
+const VAL_ACTOR_NOT_ON_UCDEFDGM = "Actor is in geen enkele workflow specificatie opgenomen ({0})."
+const VAL_ACTOR_NOT_ON_UCDGM = "Actor is in geen enkel workflow overzicht opgenomen ({0})."
+const VAL_MULTIPLE_STEREOTYPES = "Dit element heeft meerdere stereotypen ({0}), dit is niet toegestaan. Zorg ervoor dat het element een enkel stereotype heeft."
+const VAL_ELT_NOT_PART_OF_FLOW = "Element maakt geen deel uit van een workflow. Neem het element in een workflow op."
+const VAL_COMP_IN_COMP = "Opgenomen in een diagram van een ander scherm of component. Een component of scherm mag zelf geen verdere verdiepingen bevatten."
+const VAL_WF_ISON_DIAGRAM = "Dit element mag niet in een diagram worden opgenomen. Vervang deze door een bijbehorende stap (workflow)."
+const VAL_MISSING_WFDEFN_DIAGRAM = "Dit element moet precies 1 diagram bevatten en dit moet een workflowdefinitie diagram zijn."
+const VAL_MISSING_WF_DIAGRAM = "Dit element moet precies 1 diagram bevatten en dit moet een workflowrealisatie diagram zijn."
+const VAL_DOMRULE_NOT_REALISED = "Domeinregel is aan geen enkel domeinobject gerelateerd."
+const VAL_ELT_ON_INVALID_DGM = "Element bevind zich op een diagram waar dit niet thuis hoort "
+const VAL_INVALID_SUBFLOW = "Een workflow mag alleen subflows van eenzelfde of lager niveau bevatten, dus bv een werkinstructie mag geen bedrijfsproces als stap bevatten."
+const VAL_WF_IS_NOT_USED = "Deze workflow wordt niet gebruikt. Als deze workflow het hoogste niveau is dan zal dit kloppen, neem anders de workflow als subflow op binnen een andere workflow."
+const VAL_COMP_IS_NOT_USED = "Deze component wordt niet gebruikt. Neem  de component op als stap in een of meer workflows."
+const VAL_AI_IS_NOT_USED = "Dit autorisatieitem is nog niet gebruikt. Koppel deze aan de te autoriseren handelingen/gegevens."
+const VAL_WFTYPETAG_MISSING = "Tag 'WorkflowType' ontbreekt of heeft een ongeldige waarde (waarde moet zijn een van {0})"
+const VAL_WFTYPETAG_DIFFERS = "Niveau van de stap wijkt af van dat van de subflow (WorkflowType is {0} ipv {1}). Verwijder de stap en plaats deze opnieuw."
+const VAL_WF_MISSING_UCELT = "De naam van dit element moet gelijk zijn aan de naam van de use case ({0})"
+const VAL_INVALID_WF_EXTENSION = "De workflow mag alleen extenden van een workflow van hetzelfde niveau ({0})"
+const VAL_REVERSED_CONNECTOR = "Een relatie van type 'Destination -> Source' is niet toegestaan. Verwijder de relatie en leg deze opnieuw."
+const VAL_PROGRAM_FAILURE = "Er is een fout opgetreden in de validatie. Neem contact op met de beheerder van TFCS (fout in {0})."
+const VAL_RELATION_NOT_VALID = "Deze relatie is hier niet toegestaan ({0} van {1}({2}) -> {3}({4}))."
+const VAL_RELATIONSTEREO_NOT_VALID = "Stereotype van deze relatie is niet toegestaan {5}({0}) van {1}({2}) -> {3}({4})). Verwijder de relatie en leg deze opnieuw."
+const VAL_WF_ACT_NAMES_NOT_SAME = "De naam van de workflow volgt niet de standaard. Controleer de naamgeving van de elementen in de projectbrowser bij deze workflow."
+const VAL_UC_MISSING_FOR_WF = "Het UC element ontbreekt of heeft niet dezelfde naam als de activity."
+const VAL_SUBLOWS_NOT_ALLOWED = "Een stap van type subflow is hier niet toegestaan."
+const VAL_WFSTEP_INVALID_IN_WORKFLOW = "Een stap van type '{0}' mag niet zijn opgenomen in een workflow van een type {1}."
+const VAL_WFSTEP_INVALID_IN_COMPONENT = "Een subflow mag alleen worden opgenomen in een andere workflow en niet in een scherm of component."
+const VAL_NO_CLASSIFIERINST_ON_FLOWDEFDGM = "Het domeinobject ontbreekt nog in de definitie van de workflow. Voeg deze daar nog toe."
+const VAL_NO_CLASSIFIER_ON_FLOWDEFDGM = "Het bijbehorende autorisatieitem ontbreekt nog in de definitie van de workflow. Voeg deze daar nog toe."
+const VAL_INFO_ADDED_AI_TO_WFDEFN = "Autorisatie '{0}' is ook toegevoegd aan het workflow definitie diagram."
+const VAL_INFO_ADDED_REQ_TO_WFDEFN = "Requirement '{0}' is ook toegevoegd aan het workflow definitie diagram."
+const VAL_INFO_ADDED_ELT_TO_WFDEFN = "Impliciet gerelateerd element '{0}' is ook toegevoegd aan het workflow definitie diagram."
+const VAL_INFO_ADDED_DO_TO_WFDEFN = "Domeinobject '{0}' is ook toegevoegd aan het workflow definitie diagram."
+const VAL_DGM_INVALID_PARENT = "Plaats het diagram onder een element van een type '{0}'."
+const VAL_INFO_ADDED_RELATED_TO_WFDEFN = "Aan de workflow gerelateerd element '{0}' toegevoegd aan het workflow definitie diagram."
+const VAL_INFO_ADDED_WF_TO_WFDEFN = "Subflow '{0}' is ook toegevoegd aan het workflow definitie diagram."
+const VAL_ACTION_MISSING_CLASSIFIER = "De workflow waarop deze stap is gebaseerd is verwijderd uit het model. Verwijder ook deze stap."
+const VAL_COMP_MISSING_CLASSIFIER = "De component of het scherm waarop deze stap is gebaseerd is verwijderd uit het model. Verwijder ook deze stap."
+const VAL_AUT_MISSING_CLASSIFIER = "De autorisatie wat dit effect heeft is verwijderd uit het model. Verwijder ook dit effect."
+const VAL_DOMAIN_MISSING_CLASSIFIER = "Het domeinobject is verwijderd uit het model. Verwijder deze ook hier."
+const VAL_NON_TFCS_ELEMENT = "Dit element mag niet gebruikt worden binnen TFCS. Als het niet gebruikt wordt verwijder het dan, anders vervang dit door een modelelement uit TFCS."
+const VAL_NO_RELATIONS_ALLOWED_OFTYPE = "Dit element mag geen relatie met andere elementen hebben van type {0}. Leg de relatie op een andere manier."
+const VAL_ELT_ON_OTHER_DIAGRAM = "Dit element is (ook) opgenomen op een ander diagram. Zorg ervoor dat dit element alleen is opgenomen in het diagram waarbij deze in de project browser is vastgelegd."
+const VAL_MISSING_INCLUDES_EXTENDS ="Leg een include of extend relatie van '{1}' naar '{0}' of verwijder '{0}' van het diagram."
+const VAL_COMP_ON_COMPDGM = "Een complexe stap mag alleen binnen een diagram van een workflow worden opgenomen. Verwijder de stap of neem het diagram over bij een workflow."
+
+' =============================================================================
+' Menu items
+' =============================================================================
+const DOCGEN_OUTPUT_LOCATION = "Selecteer de map voor de output bestanden."
+
+const MNU_GENERATE_WFSPEC = "Genereer workflow specificatie"
+const MNU_GENERATECONTEXTRTF = "Genereer context document"
+
+' =============================================================================
+' TFCS_Commons
+' =============================================================================
+const COMM_NEW_WORKFLOW = "Nieuwe workflow"
+dim COMM_WORKSPACE_MISSING: COMM_WORKSPACE_MISSING = _
+	"Kon de workspace van de gebruiker niet vinden:"+vbCRLF+vbCRLF+"     {0}"+vbCRLF+vbCRLF+"Maak deze eerst aan"+vbCRLF
+
+' =============================================================================
+' TFCS_CreateFromToolbox/TFCS_CreateFromProjectBrowser
+' =============================================================================
+' TFCS elementtype not allowed on TFCS diagram
+const DDH_TITLE_NOTALL = "TFCS Model validatie"
+dim DDH_PROMPT_USE_TOOLBOX : DDH_PROMPT_USE_TOOLBOX = "Dit soort elementen kunnen alleen via de"+ _
+	vbCRLF+" toolbox op dit diagram worden opgenomen"
+dim DDH_PROMT_NOTALL : DDH_PROMT_NOTALL = "Dit element is niet toegestaan"+vbCRLF+"op {0} diagram"
+dim DDH_PROMPT_PBCR_NOTALLOWED : DDH_PROMPT_PBCR_NOTALLOWED = _
+	"Modelelementen mogen alleen via de toolbox"+vbCRLF+"bij een diagram worden aangemaakt."
+const DDH_NOTALL_FLOWDEFDGM = "een workflow definitie"
+const DDH_NOTALL_GENERICTYPE = "dit type"
+const DDH_NOTALL_FLOWSDGM = "een workflow overzicht"
+const DDH_NOTALL_FLOWDGM = "een workflow realisatie"
+const DDH_NOTALL_DOMAINDGM = "een domein"
+const DDH_NOTALL_REQDGM = "een requirements"
+const DDH_NOTALL_MNTDGM = "een beheer"
+
+' TFCS element already present in diagram
+dim DDH_PROMPT_ELTONDGM : DDH_PROMPT_ELTONDGM = "Dit element is al opgenomen op dit diagram"+vbCRLF+"U kunt dit element maar 1x opnemen"
+const DDH_TITLE_ELTONDGM = "TFCS Model validatie"
+
+'----------------------------------------------------------------------------------------------------------------------
+' Module containing general utility methods.
+' 
+' This module contains no event handlers only supporting functions, so registration with EAST is indirect, through
+' inclusion within other modules
+'
+'----------------------------------------------------------------------------------------------------------------------
+
+' Retrieves the named element from the user temp package (userdir.temp)
+' If the user temp package does not yet exist, its created.
+' If the temp element does not yet exist, its created (always type 'Class') including the note as explanation.
+function GetTempElement(name,notes)
+	dim pck: set pck = EAST.GetPackageByFQN(GEN__WORKSPACE+"."+EAST.UserName()+".temp",true)
+	on error resume next
+	dim elt: set elt = pck.Elements.GetByName(name)
+	if elt is nothing then
+		set elt = pck.Elements.AddNew("","Class")
+		elt.name = name
+		elt.Notes = notes
+		elt.Update()
+	end if
+	set GetTempElement = elt
+end function
+
+function GetPrivatePackage(model,name)
+	set GetPrivatePackage = nothing
+	
+ 	' Get the private workspace for the current user
+	dim workspacePath: workspacePath = GEN__WORKSPACE+"."+EAST.UserName()
+	Dim workspace : 
+	on error resume next
+	set workspace = EAST.GetPackageByFQN(workspacePath) 
+	if err.number <> 0 then
+		EAST.MsgBox EAST.StrRep(MSG_WORKSPACE_MISSING,workspacePath),16,COMM_NEW_WORKFLOW
+		exit function
+	end if
+	on error goto 0
+
+	' Get the package (create if not available)
+	if(name <> "") then
+		name = "."+name
+	end if
+	if model = GEN__WORKSPACE then
+		' No model selected: drop in private workspace root
+		set GetPrivatePackage = EAST.GetPackageByFQN(workspacePath+name, true)
+	else
+		set GetPrivatePackage = EAST.GetPackageByFQN(workspacePath+"."+model+name, true) 
+	end if
+
+end function
+
+' Add an action for the supplied workflow activity to the diagram at the indicated position
+' Returns the action element that was created
+
+'-----------------------------------------------------------------------------------
+' Generic diagram & element 
+'-----------------------------------------------------------------------------------
+
+' Tree selection dialog - all elements in repository, current model is default open Returns GUID of selected dgm
+function SelectDiagramFromTree(title,stereotype,stereotypeName,modelDefault,allowNew)
+	SelectDiagramFromTree = ""
+
+	' Data to pass to the dialog
+	dim dict : set dict = CreateObject("Scripting.Dictionary")
+	dim rows : set rows = EAST.ExecuteSQL(COMM_SQL_DGMSBYSTEREO,ucase(stereotype))	
+	dim rootModels : set rootModels = EAST.ExecuteSQL(COMM_SQL_GETMODELS,"")	
+	dict.add "DFLT_MDL",modelDefault 
+	if(allowNew) then
+		dict.add "ALLOWNEW",stereotypeName
+	end if
+	dict.add "ROWS",rows
+	dict.add "MODELS", rootModels
+	
+	EAST.OpenDialog "tfcsSelectTree.html",title,dict
+	EAST.LogDebug("SelectDiagramFromTree: "+dict.item("RESULT"))
+	SelectDiagramFromTree = dict.item("RESULT")
+end function
+
+' Tree selection dialog - all elements in repository, current model is default open. Returns GUID of selected elt
+function SelectElementFromTree(title,stereotype,stereotypeName,modelDefault,allowNew,hideElement)
+	SelectElementFromTree = ""
+
+	' Data to pass to the dialog
+	dim dict : set dict = CreateObject("Scripting.Dictionary")
+	dim hideID: hideID = 0
+	if not hideElement is nothing then
+		hideID = hideElement.ElementID
+	end if
+	dim rows : set rows = EAST.ExecuteSQL(COMM_SQL_ELTSBYSTEREO,stereotype&"|"&hideID)	
+	dim rootModels : set rootModels = EAST.ExecuteSQL(COMM_SQL_GETMODELS,"")	
+	dict.add "DFLT_MDL",modelDefault 
+	if(allowNew) then
+		dict.add "ALLOWNEW",stereotypeName
+	end if
+	dict.add "ROWS",rows
+	dict.add "MODELS", rootModels
+	
+	EAST.OpenDialog "tfcsSelectTree.html",title,dict
+	EAST.LogDebug("SelectElementFromTree: "+dict.item("RESULT"))
+	SelectElementFromTree = dict.item("RESULT")
+end function
+
+' Tree selection dialog - all elements in repository with specific tag values, default tag open .Returns GUID of selected elt
+function SelectElementTagFromTree(title,stereotype,tagName,tagValues,modelDefault,tagDefault,allowNew)
+	SelectElementTagFromTree = ""
+
+	' Data to pass to the dialog
+	dim dict : set dict = CreateObject("Scripting.Dictionary")
+	dim rows : set rows = EAST.ExecuteSQL(COMM_SQL_ELTSBYSTEREO_AND_TAG,stereotype+"|"+tagName+"|"+ucase(tagValues))	
+	dim rootModels : set rootModels = EAST.ExecuteSQL(COMM_SQL_GETMODELS,"")	
+	dict.add "DFLT_MDL",modelDefault 
+	dict.add "DFLT_TAG",tagDefault
+	if allowNew then
+		dict.add "ALLOWNEW",tagValues
+	end if
+	dict.add "ROWS",rows
+	dict.add "MODELS", rootModels
+	
+	EAST.OpenDialog "tfcsSelectTree.html",title,dict
+	EAST.LogDebug("SelectElementTagFromTree: "+dict.item("RESULT"))
+	SelectElementTagFromTree = dict.item("RESULT")
+end function
+
+
+' Returns true if an object is present on a specific diagram
+function ObjectIsOnDiagram(objID,dgm)
+	ObjectIsOnDiagram = false
+	Dim dgmObject : 
+	for each dgmObject in dgm.DiagramObjects
+		if dgmObject.ElementID = objID then
+			ObjectIsOnDiagram = true
+			exit function
+		end if
+	next
+end function
+
+' Add an element as link to the diagram, return the created diagram object
+function addEltToDiagram(elt, dgm, left, top)
+	EAST.LogStart("addEltToDiagram")
+	dim width: width = 20
+	dim height: height = 30
+	' TBD: Why is _sizeX/Y not working?
+	select case elt.Type
+	case "Issue"
+		width = 200
+	case "Requirement"
+		width = 200
+	case "Object"
+		width = 150
+		height = 50
+	case "Class"
+		width = 200
+		height = 100
+	case "Decision"
+		width = 26
+		height = 34
+	case "MergeNode"
+		width = 26
+		height = 34
+	case "Actor"
+		width = 40
+		height = 60
+	case "UseCase"
+		width = 100
+		height = 70
+	case "Activity"
+		width = 80
+		height = 60
+	case "Action"
+		width = 100
+		if(elt.Stereotype = "TFCS_CompositeAction") then
+			height = 60
+		else
+			height = 30
+		end if
+	case else
+	end select
+	dim right: right = left + width
+	dim bottom: bottom = top + height
+	dim dgmObject: set dgmObject = dgm.diagramObjects.AddNew("l="&left&";r="&right&";t="&top&";b="&bottom&";", "" )
+	dgm.DiagramObjects.Refresh()
+	dgmObject.ElementID = elt.ElementID 
+	dgmObject.Update()
+
+	set addEltToDiagram = dgmObject
+	EAST.LogInfo("Added element to '"&dgm.name&"' at ("&left&","&top&")-("&right&","&bottom&")")
+	EAST.LogEnd("addEltToDiagram")
+end function
+
+' Adds a post-it to a diagram
+' loc has the format: "l=10;t=10;r=800;b=100;" (#pixels left-top-right-bottom)
+function addPostIt(elt,dgm,loc,notes)
+
+	Dim dgmElement : 
+	Dim dgmObject : 
+	
+	set dgmElement = elt.Elements.AddNew("","Note")
+	dgmElement.Notes = notes
+	dgmElement.Update()
+	
+	set dgmObject = dgm.diagramObjects.AddNew(loc,"")
+	dgmObject.ElementID = dgmElement.ElementID
+	dgmObject.Style = "BCol=65535;NSL=0"
+	dgmObject.Update()
+	
+	set addPostIt = dgmObject
+end function
+
+' Adds a boundary to a diagram
+' loc has the format: "l=10;t=10;r=800;b=100;" (#pixels left-top-right-bottom)
+' nonSelectable: 1: niet selecteerbaar, 0: wel
+function addBoundary(elt,dgm,loc,notes,nonSelectable)
+
+	Dim dgmElement : 
+	Dim dgmObject : 
+	
+	set dgmElement = elt.Elements.AddNew("","Boundary")
+	dgmElement.Name = notes
+	dgmElement.Update()
+	
+	set dgmObject = dgm.diagramObjects.AddNew(loc,"")
+	dgmObject.ElementID = dgmElement.ElementID
+	dgmObject.Style = "font=Arial;fontsz=100;bold=1;italic=0;ul=0;charset=0;pitch=34;NSL="&nonSelectable
+	dgmObject.Update()
+	
+	set addBoundary = dgmObject
+end function
+
+Function GetStyleEx(byref dgm, srch)
+	GetStyleEx = ""
+	
+	Dim style: style = dgm.StyleEx
+    Dim sPos: sPos = InStr(1, style, srch+"=")
+    If sPos > 0 Then
+        Dim ePos: ePos = InStr(sPos, style, ";")
+        GetStyleEx = Mid(style, sPos+len(srch)+1, ePos-sPos-len(srch)-1)
+    End If
+End Function
+
+sub SetStyleEx(byref dgm, srch, value)
+	
+	Dim style: style = dgm.StyleEx
+    Dim sPos: sPos = InStr(1, style, srch+"=")
+    If sPos = 0 Then
+		style = style+srch+"="+value+";"
+	else
+	    Dim ePos: ePos = InStr(sPos, style, ";")
+		style = Left(style,sPos+len(srch)+1)+value+Mid(style, ePos)
+	end if
+	dgm.StyleEx = style
+	dgm.update()
+End sub
+
+Function GetTagByName(tags, name)
+
+	Dim i
+	Dim tag : 
+	Set tag = Nothing
+	If Not tags Is Nothing Then
+		For i = 0 To tags.Count - 1
+			If tags.GetAt(i).Name = name Then
+				Set tag = tags.GetAt(i)
+				Exit For
+			End If
+		Next
+	End If
+	Set GetTagByName = tag
+
+End Function
+
+Function GetTagValByName(tags, name)
+
+	Dim ret
+	ret = ""
+
+	If Not tags Is Nothing Then
+		Dim i
+		Dim tag : 
+'		Set tag = tags.GetByName(name)
+		For i = 0 To tags.Count - 1
+			If tags.GetAt(i).Name = name Then
+				ret = tags.GetAt(i).Value
+				Exit For
+			End If
+		Next
+	End If
+
+	GetTagValByName = ret
+
+End Function
+
+
+Sub SetTagValByName(tags, name, val, notes)
+
+	If Not tags Is Nothing And Len(name) > 0 Then
+		Dim tag : 
+'		Set tag = tags.GetByName(name)
+		Set tag = GetTagByName(tags, name)
+		If Not tag Is Nothing Then
+			tag.Value = val
+			tag.Notes = notes
+			tag.Update
+			tags.Refresh
+		Else
+			Set tag = tags.AddNew(name, val)
+			tag.notes = notes
+			tag.Update
+			tags.Refresh
+		End If
+	End If
+
+End Sub
+
+function GetElementByName(eltList,name)
+	set GetElementByName = nothing
+	
+	dim elt
+	for each elt in eltList
+		if elt.name = name then 
+			set GetElementByName = elt
+			exit function
+		end if
+	next
+end function
+
+' Adds a property to an element
+' Carefull: no check if the property already exists!
+sub AddProperty(eltGUID,pName,pType,pValue,pComment)
+	dim props: set props = EAST.ExecuteSQL(SQL_GET_OBJECTPROPERTIES,eltGUID)
+	if props is nothing or props.count = 0  then
+		' create the very first property in the set
+		EAST.logerror(EAST.GenerateGUID())
+		dim SQL: SQL = EAST.StrRep(SQL_INS_OBJECTPROPERTIES, _
+			EAST.GenerateGUID()+"|"+eltGUID+"|"+pName+"|"+pType+"|"+pValue+"|"+pComment )
+		Repository.Execute(SQL)
+		EAST.logerror(SQL)
+	else
+		dim ID : ID = props.item(0).item("XREFID")
+		dim DESC : DESC = props.item(0).item("DESCRIPTION")
+		DESC = DESC + EAST.StrRep("@PROP=@NAME={0}@ENDNAME;@TYPE={1}@ENDTYPE;@VALU={2}@ENDVALU;@PRMT={3}@ENDPRMT;@ENDPROP;", _
+			pName+"|"+pType+"|"+pValue+"|"+pComment )
+		Repository.Execute(EAST.StrRep(SQL_UPD_OBJECTPROPERTIES, ID+"|"+DESC)) 
+	end if
+end sub
+
+' Remove an element from the model
+sub DeleteElementFromModel(elt)		
+	dim elements, i
+	if elt.ParentID = 0 then
+		set elements = GetPackageByID(elt.PackageID).elements
+	else 
+		set elements = GetElementByID(elt.ParentID).elements
+	end if
+
+	for i = 0 to elements.Count - 1
+		if elements.GetAt(i).ElementID = elt.ElementID then
+			elements.DeleteAt i, false
+			Elements.Refresh()
+			EAST.LogInfo("Deleted "&elt.ElementID)
+			exit sub
+		end if
+	next
+end sub
+
+'----------------------------------------------------------------------------------------------------------------------
+' Creation of a new workflow of a specific type (UC/WI/BP)
+'
+' This module contains no event handlers only supporting functions, so registration with EAST is indirect, through
+' inclusion within other modules
+'
+' Creates the following structure in the private workspace of the user, in package 'Workflows':
+' 	<WF package>
+'		<WF activity>
+'			<WF>
+'				<default WF realisation diagram>
+'			<default WF specification diagram>
+'
+'----------------------------------------------------------------------------------------------------------------------
+Function CreateWorkFlowForModel(dgm, flowType,flowPrefix,model)
+	set CreateWorkFlowForModel = nothing
+	dim thePackage : set thePackage = GetPrivatePackage(model,GEN__PCK_WORKFLOWS)
+	
+	' Get the name for the new WF
+	dim answer: answer = EAST.InputBox("Naam (zonder prefix '"+flowPrefix+"-') : ","Toevoegen nieuwe "+flowType,"000 - Mijn workflow")
+	if answer = empty or answer = "" then
+		exit function
+	end if
+	dim ucName : ucName = flowPrefix+"-"+ answer
+
+' -------------------------------------------------------
+' 	<WF package>
+' -------------------------------------------------------
+	dim ucPackage :	set ucPackage = thePackage.packages.AddNew(ucName, "Class" )
+	ucPackage.Update()
+	
+' -------------------------------------------------------
+'		<WF activity>
+' -------------------------------------------------------
+	dim ucActivity : set ucActivity = ucPackage.elements.AddNew(ucName, "TFCS::TFCS_Activity" )
+	ucPackage.Elements.Refresh()
+
+' -------------------------------------------------------
+'			<WF>
+'				<default WF realisation diagram>
+' -------------------------------------------------------
+	dim uc : set uc = ucActivity.elements.AddNew( ucActivity.Name, "TFCS::TFCS_WorkFlow" ) 
+	SetTagValByName uc.TaggedValues,"WorkflowType",flowType,""
+
+	dim ucReal : set ucReal = uc.CompositeDiagram
+	ucReal.Name = flowPrefix+"R-"+answer
+	ucActivity.Elements.Refresh()
+	SetStyleEX ucReal,"ShowDiagramInPages","1"
+	ucReal.Update()
+	uc.Update()
+
+	' Populate UC realization diagram
+	' Diagram notes
+	dim dgmLabel : set dgmLabel = uc.Elements.AddNew("","Text")
+	dgmLabel.Subtype = 18
+	dgmLabel.Update()
+	dim dgmObject : set dgmObject = ucReal.diagramObjects.AddNew( "l=5;t=5;r=10;b=10;", "" )
+	dgmObject.ElementID( dgmLabel.ElementID )
+	dgmObject.Style = "NSL=1"
+	dgmObject.Update()
+	
+	' TODO note
+	addPostIt ucActivity,ucReal,"l=250;t=27;r=400;b=85;","<b>TODO</b>: stappenplan nog uitwerken"
+	set dgmObject = ucReal.diagramObjects.AddNew( "l=559;t=27;r=701;b=85;", "" )
+	dgmObject.ElementID( ucActivity.ElementID )
+	dgmObject.Style = "NSL=1"
+	dgmObject.Update()
+	
+	' Default flow: start
+	dim eltStart
+	set dgmElement = uc.Elements.AddNew("Start","StateNode")
+	dgmElement.Subtype = 100 'for ActivityInitial
+	dgmElement.Stereotype = "TFCS_ActivityInitial"
+	dgmElement.Update()
+	set dgmObject = ucReal.diagramObjects.AddNew( "l=371;t=116;r=396;b=140;", "" )
+	dgmObject.ElementID( dgmElement.ElementID )
+	dgmObject.Update()
+	set eltStart = dgmElement
+
+	' Default flow: action
+	dim eltAction
+	dim dgmElement: set dgmElement = uc.Elements.AddNew("Flow of "+ucName,"TFCS::TFCS_AtomicAction")
+	dgmElement.Update()
+	set dgmObject = ucReal.diagramObjects.AddNew( "l=331;t=180;r=436;b=250;", "" )
+	dgmObject.ElementID( dgmElement.ElementID )
+	dgmObject.Update()
+	set eltAction = dgmElement
+
+	' Default flow: end
+	dim eltEnd
+	set dgmElement = uc.Elements.AddNew("Einde","StateNode")
+	dgmElement.Subtype = 101 'for ActivityFinal
+	dgmElement.Stereotype = "TFCS_ActivityFinal"
+	dgmElement.Update()
+	set dgmObject = ucReal.diagramObjects.AddNew( "l=371;t=280;r=396;b=304;", "" )
+	dgmObject.ElementID( dgmElement.ElementID )
+	dgmObject.Update()
+	set eltEnd = dgmElement
+
+	' Default flow: connect start-action and action-end
+    dim conn : set conn = eltStart.Connectors.AddNew("", "ControlFlow")
+	conn.SupplierID = eltAction.ElementID
+    conn.Update()
+	set conn = eltAction.Connectors.AddNew("", "ControlFlow")
+	conn.SupplierID = eltEnd.ElementID
+    conn.Update()
+	
+	ucReal.DiagramObjects.Refresh()
+
+' -------------------------------------------------------
+'			<default WF specification diagram>
+' -------------------------------------------------------
+	' Add usecase element
+	dim ucSpec : set ucSpec = ucActivity.CompositeDiagram
+	set dgmObject = ucSpec.diagramObjects.AddNew( "l=331;t=416;r=436;b=486;", "" )
+	dgmObject.ElementID( uc.ElementID )
+	dgmObject.Update()
+	
+	' Add diagramlabel
+	set dgmElement = ucActivity.Elements.AddNew("","Text")
+	dgmElement.Subtype = 18
+	dgmElement.Update()
+	set dgmObject = ucSpec.diagramObjects.AddNew( "l=5;t=5;r=10;b=10;", "" )
+	dgmObject.ElementID( dgmElement.ElementID )
+	dgmObject.Style = "NSL=1"
+	dgmObject.Update()
+
+	' Add TODO Notes
+	set dgmObject = addPostIt(ucActivity,ucSpec,"l=252;t=5;r=769;b=128;","<<korte omschrijving>>"_
+		+VbCrLf _
+		+VbCrLf )
+	dgmObject.Style = "BCol=16249847;"
+	dgmObject.Update()
+	addPostIt ucActivity,ucSpec,"l=559;t=27;r=701;b=85;","<b>TODO</b>: neem hier een korte beschrijving van de workflow op"+ _
+		VbCrLf +"<u>Vorm</u>: platte tekst"
+	addPostIt ucActivity,ucSpec,"l=256;r=564;t=819;b=885;","<b>TODO:</b> neem hier alle overige requirements op waarin door deze workflow wordt voorzien."+ _
+		VbCrLf +"<u>Vorm</u>: links naar autorisatieitems onder <u>\Requirements\...</u></font>"
+	addPostIt ucActivity,ucSpec,"l=30;t=799;r=186;b=927;","<b>TODO:</b> neem hier alle autorisatie items op die binnen de workflow worden gebruikt"+ _
+		VbCrLf +"<u>Vorm</u>: links naar autorisatieitems onder <font color='000ff'><u>\Requirements\Autorisaties</u></font>"
+	addPostIt ucActivity,ucSpec,"l=427;t=673;r=682;b=718;","<b>TODO:</b> neem hier alle overige post-condities op"+ _
+		VbCrLf +"<u>Vorm</u>: platte tekst"  
+	addPostIt ucActivity,ucSpec,"l=68;t=670;r=323;b=715;","<b>TODO:</b> neem hier alle overige pre-condities op<u>"+ _
+		VbCrLf +"Vorm</u>: platte tekst"
+	addPostIt ucActivity,ucSpec,"l=537;t=404;r=761;b=498;","<b>TODO:</b> neem hier alle objecten op die door deze workflow worden verwijderd, gewijzigd, of gecreeerd"+_
+		VbCrLf +"<u>Vorm</u>: instanties van domeinobjecten onder <font color='#0000ff'><u>\Domeinmodel</u></font>"
+	addPostIt ucActivity,ucSpec,"l=272;t=532;r=494;b=603;","<b>TODO:</b> neem hier alle objecten op die door deze workflow worden gelezen"+ _
+		VbCrLf +"<u>Vorm</u>: instanties van domeinobjecten onder <font color='#0000ff'><u>\Domeinmodel</u></font>" 
+	addPostIt ucActivity,ucSpec,"l=41;t=409;r=220;b=493;","<b>TODO:</b> neem hier alle objecten op die input zijn voor deze workflow"+ _
+		VbCrLf +"<u>Vorm</u>: instanties van domeinobjecten onder <font color='#0000ff'><u>\Domeinmodel</u></font>"
+	addPostIt ucActivity,ucSpec,"l=177;t=289;r=589;b=368;","<b>TODO: </b>neem hier alle extensie- en include- relaties op met andere workflows."+ _
+		VbCrLf +"<u>Vorm</u>: Links naar de betreffende UC-es onder <font color='#0000ff'><u>\Functioneel Ontwerp\Use cases</u></font>"+ _
+		VbCrLf +VbCrLf +"<u>Richtlijn</u>: aan extended en included UC-es worden geen actoren gekoppeld (deze volgen impliciet uit het gebruik)"
+	addPostIt ucActivity,ucSpec,"l=174;t=181;r=626;b=229;","<b>TODO: </b>neem hier de relevante actoren op en koppel die aan de workflow "+ _
+		VbCrLf +"<u>Vorm</u>: links naar actoren onder <font color='#0000ff'><u>\ProcesBeschrijvingen\Actoren</u></font> met associatie met de workflow"
+	
+	' Add boundaries
+	addBoundary ucActivity,ucSpec,"l=401;t=629;r=766;b=762;","Post-condities",1
+	addBoundary ucActivity,ucSpec,"l=22;t=769;r=197;b=1061;","Autorisaties",1
+	addBoundary ucActivity,ucSpec,"l=16;t=151;r=765;b=258;","Actoren",1
+	addBoundary ucActivity,ucSpec,"l=22;t=629;r=387;b=762;","Pre-condities" ,1
+	addBoundary ucActivity,ucSpec,"l=207;t=769;r=766;b=1061;","Requirements",1
+	
+	ucSpec.DiagramObjects.Refresh()
+
+	set CreateWorkFlowForModel = ucActivity
+end function
+
+function getWorkflowPrefix(flowType)
+	dim prefix
+	if flowType = "UseCase" then
+		prefix = "UC"
+	elseif flowType = "WerkInstructie"then
+		prefix = "WI"
+	elseif flowType = "BedrijfsProces" then
+		prefix = "BP"
+	else
+		EAST.LogWarning("Unkown flowtype: "+flowType)
+		prefix = "UC"
+	end if
+	
+	getWorkflowPrefix = prefix
+end function
+
+'----------------------------------------------------------------------------------------------------------------------
+' The core of TFCS: creation of new model elements using the diagram toolboxes
+'
+' The component checks if a dropped element 
+'----------------------------------------------------------------------------------------------------------------------
+'option explicit
+
+'!INC TFCS_Support.TFCS_constants
+'!INC TFCS_Support.TFCS_SQL
+'!INC TFCS_Support.TFCS_TEXTS
+'!INC TFCS_Support.TFCS_commons
+'!INC TFCS_Support.TFCS_WorkflowCreation
+
+' Location in private workspace to put new elements  
+const GEN__WORKSPACE = "Onderhanden" 
+const GEN__PCK_ACTORS = "Actoren"
+const GEN__PCK_REQUIREMENTS = "Requirements"
+const GEN__PCK_TODO = "Nog oppakken"
+const GEN__PCK_DOMAIN = "Domein"
+const GEN__PCK_SCREENS ="Schermen"
+const GEN__PCK_COMPONENTS = "Componenten"
+const GEN__PCK_AUTHORISATIONS ="Authorisaties"
+const GEN__PCK_WORKFLOWS ="Workflows"
+
+' Automatically creates a workspace for a new user
+' The workspace is used to store newly created diagrams and model elements.
+Sub EA_FileOpen()
+	if EAST.GetPackageByFQN(GEN__WORKSPACE+"."+EAST.UserName()) is nothing then
+		Dim pck : 
+		set pck = EAST.GetPackageByFQN(GEN__WORKSPACE+"."+EAST.UserName(),true)
+		Dim dgm : 
+		set dgm = pck.Diagrams.AddNew("","TFCS::TFCS_FlowsDiagram")
+		dgm.Name = "Workflow kladblok"
+		dgm.update()
+		set dgm = pck.Diagrams.AddNew("","TFCS::TFCS_DomainDiagram")
+		dgm.Name = "Domeinmodel kladblok"
+		dgm.update()
+		set dgm = pck.Diagrams.AddNew ("","TFCS::TFCS_RequirementsDiagram")
+		dgm.Name = "Requirements kladblok"
+		dgm.update()
+		set dgm = pck.Diagrams.AddNew ("","TFCS::TFCS_MaintenanceDiagram")
+		dgm.Name = "TODO lijst kladblok"
+		dgm.update()
+		pck.Diagrams.Refresh()
+	end if
+end sub
+
+' Handle post-creation steps for complex TFCS elements
+Function EA_OnPostNewElement( Info ) 
+	EAST.LogStart("EA_OnPostNewElement")
+	EA_OnPostNewElement = false	' Default: no changes to new element
+	
+	dim dgm: set dgm = GetCurrentDiagram() ' 
+	if(dgm is nothing) then 
+		' Just a precaution: TFCS_DragDropValidator ensures there's always a diagram present
+		exit function 
+	end if
+	
+	dim dgmStereo : dgmStereo = GetStyleEx(dgm,"MDGDgm")
+	if Left(dgmStereo,4) <> "TFCS" then	
+		' Not dropped on a TFCS diagram => don't care!
+		EAST.LogInfo("Diagram is non-TFCS => standard EA handling")
+	else
+		dim eltDropped : set eltDropped = GetElementByID(Info.get("ElementID").value)
+		dim eltStereo : eltStereo = eltDropped.Stereotype
+		if eltStereo = "" or Left(eltStereo,4) <> "TFCS" then
+			' Droppíng non-TFCS element => no special logic required
+		else
+			EA_OnPostNewElement = OnDropElement(dgm,dgmStereo,eltDropped)
+		end if
+	end if
+		
+	EAST.LogEnd("EA_OnPostNewElement")
+end function
+
+dim replaceDroppedBy
+Function OnDropElement(dgm,dgmStereo,eltDropped ) 
+	EAST.LogStart("OnDropElement")
+	OnDropElement = false
+	
+	set replaceDroppedBy = eltDropped
+
+	HandleDropElement dgm,dgmStereo,eltDropped
+	
+	if replaceDroppedBy is nothing then
+		EAST.LogInfo("Dropped element removed...")
+		DeleteElementFromModel(eltDropped)
+	elseif replaceDroppedBy.ElementID <> eltDropped.ElementID then
+		if ObjectIsOnDiagram(replaceDroppedBy.ElementID,dgm) then
+			EAST.LogInfo("Object already on diagram => not allowed")
+			DeleteElementFromModel(eltDropped)
+			EAST.MsgBox DDH_PROMPT_ELTONDGM,16,DDH_TITLE_ELTONDGM
+		else
+			EAST.LogInfo("Replacing dropped element with '"+replaceDroppedBy.name+"' type "+replaceDroppedBy.Type+"{"++replaceDroppedBy.Stereotype+")")
+			dim posX, posY
+			GetCoordinates dgm,eltDropped,posX,posY
+			DeleteElementFromModel(eltDropped)
+			addEltToDiagram replaceDroppedBy, dgm, posX, posY
+			ReloadDiagram(dgm.DiagramID)
+		end if
+	end if
+
+	OnDropElement = true 
+	EAST.LogEnd("OnDropElement")
+end function
+
+' Get coordinates of the dropped element: this should be the element currently selected
+sub GetCoordinates(dgm,eltDropped,posX,posY)
+	dim result: set result = EAST.ExecuteSQL(SQL_GET_DIAGRAMOBJECT_RECT,dgm.diagramID&"|"&eltdropped.elementid)
+	posX = 200
+	posY = 200
+	if not result is nothing and result.count >= 1 then
+		posX = result.item(0).item("RECTLEFT")
+		PosY = -result.item(0).item("RECTTOP")
+	end if
+end sub
+
+sub HandleDropElement(dgm,dgmStereo,eltDropped)
+	EAST.LogStart("HandleDropElement")
+
+	SuppressEADialogs = true 
+	if (dgmStereo = "TFCS::TFCS_FlowsDiagram") then
+		HandleDropOnFlowsDgm dgm,eltDropped 
+	elseif (dgmStereo = "TFCS::TFCS_FlowDefnDiagram") then
+		HandleDropOnFlowDefnDgm dgm,eltDropped 
+	elseif (dgmStereo = "TFCS::TFCS_FlowDiagram") then
+		HandleDropOnFlowDgm dgm,eltDropped 
+	elseif (dgmStereo = "TFCS::TFCS_DomainDiagram") then
+		HandleDropOnDomainDgm dgm,eltDropped 
+	elseif (dgmStereo = "TFCS::TFCS_RequirementsDiagram") then
+		HandleDropOnReqDgm dgm,eltDropped 
+	elseif (dgmStereo = "TFCS::TFCS_MaintenanceDiagram") then
+		HandleDropOnMntDgm dgm,eltDropped 
+	else
+		EAST.LogInfo("Drops on TFCS diagram type '"+dgmStereo+"' not yet defined => not allowed")
+		EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_GENERICTYPE),16,DDH_TITLE_NOTALL
+		set replaceDroppedBy = nothing
+		EAST.LogEnd("HandleDropElement")
+		exit sub
+	end if
+
+	EAST.LogEnd("HandleDropElement")
+end sub
+
+
+'----------------------------------------------------------------------------------------------------------------------
+' Handlers for specific TFCS diagrams
+'----------------------------------------------------------------------------------------------------------------------
+sub HandleDropOnFlowsDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnFlowsDgm")
+	
+	dim eltStereo: eltStereo = eltDropped.StereoType
+	select case eltStereo 
+		case "TFCS_Actor" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Actor",GEN__PCK_ACTORS)
+		case "TFCS_Workflow" 
+			set replaceDroppedBy = SelectWorkflow (dgm,"UseCase,WerkInstructie,BedrijfsProces","")
+		case "TFCS_Requirement" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_NFR" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Niet-functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Legislation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wetgeving",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Issue" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Bevinding",GEN__PCK_TODO)
+		case "TFCS_Request" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wens",GEN__PCK_TODO)
+		case "TFCS_TBD" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Open punt",GEN__PCK_TODO)
+		case "TFCS_Ambiguity" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Onduidelijkheid",GEN__PCK_TODO)
+		case "TFCS_ReviewComment" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Reviewcommentaar",GEN__PCK_TODO)
+		case else
+			EAST.LogWarning("not allowed ")
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_FLOWSDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnFlowsDgm")
+end sub
+
+sub HandleDropOnFlowDefnDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnFlowDefnDgm")
+	dim eltStereo: eltStereo = eltDropped.StereoType
+	select case eltStereo 
+		case "TFCS_Actor"
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Actor",GEN__PCK_ACTORS)
+		case "TFCS_Workflow" 
+			dim wfAct : set wfAct = Repository.GetElementByID(dgm.ParentID)
+			dim wfUC : Set wfUC = wfAct.Elements.GetByName(wfAct.Name)
+			dim defaultType : defaultType = GetTagValByName(wfUC.TaggedValues,"WorkflowType")
+			set replaceDroppedBy = SelectWorkflow (dgm,defaultType,defaultType)
+		case "TFCS_DomainInstance" 
+			CreateDomainInstance dgm,eltDropped 
+		case "TFCS_Requirement" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_NFR" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Niet-functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Legislation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wetgeving",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Issue" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Bevinding",GEN__PCK_TODO)
+		case "TFCS_Request" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wens",GEN__PCK_TODO)
+		case "TFCS_TBD" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Open punt",GEN__PCK_TODO)
+		case "TFCS_Ambiguity" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Onduidelijkheid",GEN__PCK_TODO)
+		case "TFCS_ReviewComment" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Reviewcommentaar",GEN__PCK_TODO)
+		case else
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_FLOWDEFDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnFlowDefnDgm")
+end sub
+
+sub HandleDropOnFlowDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnFlowDgm")
+	dim eltStereo: eltStereo = eltDropped.StereoType
+	select case eltStereo 
+		case "TFCS_Action" 
+			CreateWorkflowInstance dgm,eltDropped
+		case "TFCS_AuthorisationEffect" 
+			CreateAuthorisationEffect dgm,eltDropped 
+		case "TFCS_DomainInstance" 
+			CreateDomainInstance dgm,eltDropped 
+	'	case "TFCS_DomainRule" 
+	'		SelectElementForDropOnDiagram  dgm,eltDropped,"Domeinregel",GEN__PCK_DOMAIN)
+	'	case "TFCS_Sketch" 
+	'		CreateCompActionInstance( dgm,elt,"Schermvoorbeeld")
+		case "TFCS_CompositeAction" 
+			dim compType: compType = GetTagValByName(eltDropped.TaggedValues,"CompositeActionType")
+			if compType = "Scherm" then
+				CreateCompActionInstance dgm,eltDropped,"Scherm" 
+			else
+				CreateCompActionInstance dgm,eltDropped,"Component" 
+			end if
+		case "TFCS_Requirement" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_NFR" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Niet-functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Legislation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wetgeving",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Issue" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Bevinding",GEN__PCK_TODO)
+		case "TFCS_Request" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wens",GEN__PCK_TODO)
+		case "TFCS_TBD" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Open punt",GEN__PCK_TODO)
+		case "TFCS_Ambiguity" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Onduidelijkheid",GEN__PCK_TODO)
+		case "TFCS_ReviewComment" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Reviewcommentaar",GEN__PCK_TODO)
+		case "TFCS_ActivityInitial" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_ActivityFinal" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_AtomicAction" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_IntermediateResult" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_Decision" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_MergeNode" 
+			UpdateDroppedElement dgm,eltDropped
+		case "TFCS_Event"
+			UpdateDroppedElement dgm,eltDropped
+		case else 
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_FLOWDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnFlowDgm")
+end sub
+
+sub HandleDropOnDomainDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnDomainDgm")
+	dim eltStereo: eltStereo = eltDropped.StereoType
+	select case eltStereo 
+		case "TFCS_DomainObject"
+			set replaceDroppedBy = SelectElementForDropOnDiagram  (dgm,eltDropped,eltStereo,"Domeinobject",GEN__PCK_DOMAIN)
+		case "TFCS_DomainRule" 
+			SelectElementForDropOnDiagram  dgm,eltDropped,eltStereo,"Domeinregel",GEN__PCK_DOMAIN
+		case "TFCS_Requirement" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_NFR" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Niet-functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Legislation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wetgeving",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Issue" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Bevinding",GEN__PCK_TODO)
+		case "TFCS_Request" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wens",GEN__PCK_TODO)
+		case "TFCS_TBD" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Open punt",GEN__PCK_TODO)
+		case "TFCS_Ambiguity" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Onduidelijkheid",GEN__PCK_TODO)
+		case "TFCS_ReviewComment" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Reviewcommentaar",GEN__PCK_TODO)
+		case else
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_DOMAINDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnDomainDgm")
+end sub
+
+sub HandleDropOnReqDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnReqDgm")
+	dim eltStereo: eltStereo = eltDropped.StereoType
+	select case eltStereo 
+		case "TFCS_Requirement"
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_NFR" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Niet-functionele eis",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Legislation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wetgeving",GEN__PCK_REQUIREMENTS )
+		case "TFCS_Authorisation" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Autorisatie",GEN__PCK_AUTHORISATIONS )
+		case else
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_REQDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnReqDgm")
+end sub
+
+sub HandleDropOnMntDgm(dgm,eltDropped)
+	EAST.LogStart("HandleDropOnMntDgm")
+	dim eltStereo: eltStereo = eltDropped.Stereotype
+	select case eltStereo 
+		case "TFCS_Issue" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Bevinding",GEN__PCK_TODO)
+		case "TFCS_Request" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Wens",GEN__PCK_TODO)
+		case "TFCS_TBD" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Open punt",GEN__PCK_TODO)
+		case "TFCS_Ambiguity" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Onduidelijkheid",GEN__PCK_TODO)
+		case "TFCS_ReviewComment" 
+			set replaceDroppedBy = SelectElementForDropOnDiagram (dgm,eltDropped,eltStereo,"Reviewcommentaar",GEN__PCK_TODO)
+		case else
+			EAST.MsgBox EAST.StrRep(DDH_PROMT_NOTALL,DDH_NOTALL_MNTDGM),16,DDH_TITLE_NOTALL
+			set replaceDroppedBy = nothing
+	end select
+	EAST.LogEnd("HandleDropOnMntDgm")
+end sub
+
+' Create a composite action instance in the model to be placed on a diagram
+sub CreateCompActionInstance(dgm,eltDropped,compositeActionType)
+	EAST.LogStart("CreateCompActionInstance")
+	dim classifier
+	if (compositeActionType = "Scherm") then
+		set classifier = AddClassifierToDropOnDiagram (dgm,eltDropped,"TFCS_GUI","Scherm",GEN__PCK_SCREENS)
+	elseif (compositeActionType = "Schermvoorbeeld") then
+		set classifier = AddClassifierToDropOnDiagram (dgm,eltDropped,"TFCS_GUI","Schermvoorbeeld",GEN__PCK_SCREENS )
+	elseif (compositeActionType = "Component") then
+		set classifier = AddClassifierToDropOnDiagram (dgm,eltDropped,"TFCS_CompositeActivity","Component",GEN__PCK_COMPONENTS)
+	else
+		EAST.LogInfo("Unsupported composite action type: "+compositeActionType)
+		EAST.MsgBox "Unsupported composite action type: "+compositeActionType,16,"Creating composite activity"
+		set replaceDroppedBy = nothing
+		EAST.LogEnd("CreateCompActionInstance")
+		exit sub
+	end if
+
+	if classifier is nothing then 
+		EAST.LogEnd("CreateCompActionInstance")
+		exit sub 
+	end if
+	
+	' Get the name for the new element
+	dim Name: Name = EAST.InputBox("Naam: ","Toevoegen "+compositeActionType,"Mijn "+compositeActionType)
+	if Name = "" then 
+		EAST.LogInfo("User cancelled creation of new "+compositeActionType)
+		EAST.LogEnd("CreateCompActionInstance")
+		set replaceDroppedBy = nothing
+		exit sub 
+	end if
+	
+	' Link the classifier to the dropped element
+	eltDropped.ClassifierID = classifier.ElementID
+	eltDropped.ClassifierName = classifier.Name
+	eltDropped.Name = Name
+	SetTagValByName eltDropped.TaggedValues,"CompositeActionType",compositeActionType,""
+	eltDropped.Update()
+
+	' Set the behaviour (not supported by 9.3 automation API)
+	AddProperty eltDropped.ElementGUID,"kind","ActionKind","CallBehavior",""
+	
+	EAST.LogEnd("CreateCompActionInstance")
+end sub
+
+' Create a domainobject instance in the model to be placed on a diagram
+sub CreateDomainInstance(dgm,eltDropped)
+	EAST.LogStart("CreateDomainInstance")
+	dim classifier
+	set classifier = AddClassifierToDropOnDiagram (dgm,eltDropped,"TFCS_DomainObject","Domeinobject",GEN__PCK_DOMAIN)
+	if classifier is nothing then 
+		EAST.LogInfo("User cancelled (no domainobject selected)")
+		EAST.LogEnd("CreateDomainInstance")
+		exit sub 
+	end if
+	
+	' Most of the time the domaininstance is not given a name so don't ask for it
+	' User can always add one later
+	eltDropped.ClassifierID = classifier.ElementID
+	eltDropped.ClassifierName = classifier.Name
+	eltDropped.Name = ""
+	eltDropped.Update()
+	EAST.LogInfo("Updated dropped element with selected classifier ('"+classifier.Name+"')")
+	EAST.LogEnd("CreateDomainInstance")
+end sub
+
+' Create an authorisation effect in the model to be placed on a diagram
+sub CreateAuthorisationEffect(dgm,eltDropped)
+	EAST.LogStart("CreateAuthorisationEffect")
+	dim classifier
+	set classifier = AddClassifierToDropOnDiagram (dgm,eltDropped,"TFCS_Authorisation","Authorisatie",GEN__PCK_AUTHORISATIONS)
+	if classifier is nothing then 
+		EAST.LogInfo("User cancelled (no authorisation selected)")
+		EAST.LogEnd("CreateAuthorisationEffect")
+		exit sub 
+	end if
+
+	' The effect of an AI from a user perspective: eg, data become visible, additional action can be performed, ...
+	dim effect: effect = EAST.InputBox("Het effect van autorisatie '"+classifier.Name+"'"+vbCRLF+ _
+		"op deze plaats is dat: ","Nieuw autorisatie effect","")
+	if effect = "" then 
+		EAST.LogInfo("User cancelled creation of autorisationitem effect")
+		EAST.LogEnd("CreateAuthorisationEffect")
+		set replaceDroppedBy = nothing
+		exit sub 
+	end if
+
+	eltDropped.Notes = effect
+	eltDropped.ClassifierID = classifier.ElementID
+	eltDropped.ClassifierName = classifier.Name
+	eltDropped.Update()
+	EAST.LogInfo("Updated dropped element with selected classifier ('"+classifier.Name+"')")
+	EAST.LogEnd("CreateAuthorisationEffect")
+end sub
+
+' Create an workflow instance in the model to be placed on a diagram
+sub CreateWorkflowInstance(dgm,eltDropped)
+	EAST.LogStart("CreateWorkflowInstance")
+
+	' New subflows must obey the rule: only same or lower level
+	dim wfUC : set wfUC = Repository.GetElementByID(dgm.ParentID)
+	dim defaultType : defaultType = GetTagValByName(wfUC.TaggedValues,"WorkflowType")
+	dim allowedTypes : allowedTypes = defaultType
+	if defaultType = "BedrijfsProces" then
+		allowedTypes = "UseCase,WerkInstructie,BedrijfsProces"
+	elseif defaultType = "WerkInstructie" then
+		allowedTypes = "UseCase,WerkInstructie"
+	end if
+	
+	' Additional complexity: flowtype tag, and 
+	' classifier for the action is not the workflow (usecase) but its parent (activity)
+	dim wf : set wf = SelectWorkflow(dgm,allowedTypes,defaultType)
+	if wf is nothing then 
+		EAST.LogInfo("User cancelled (no workflow selected)")
+		EAST.LogEnd("CreateWorkflowInstance")
+		set replaceDroppedBy = nothing
+		exit sub 
+	end if
+
+	dim classifier: set classifier = GetElementByID(wf.ParentID)
+	dim flowType : flowType = GetTagValByName(wf.TaggedValues,"WorkflowType")
+	
+	dim name: name = EAST.InputBox("Uit te voeren handeling:","Nieuwe stap (subflow)",eltDropped.name)
+	eltDropped.Name = name
+
+	eltDropped.ClassifierID = classifier.ElementID
+	eltDropped.ClassifierName = classifier.Name
+	SetTagValByName eltDropped.TaggedValues,"WorkflowType",flowtype,""
+	eltDropped.Update()
+
+	' Set the behaviour (not supported directly by 9.3 API)
+	AddProperty eltDropped.ElementGUID,"kind","ActionKind","CallBehavior",""
+
+	EAST.LogInfo("Updated dropped element with selected workflow ('"+classifier.Name+"')")
+	EAST.LogEnd("CreateWorkflowInstance")
+end sub
+
+' Create a workflow in the model to be placed on a diagram
+function SelectWorkflow(dgm,tagValues,dfltTagValue)
+	EAST.LogStart("SelectWorkflow")
+	set SelectWorkflow = nothing
+
+	dim model : set model = EAST.GetModelForPackage(dgm.PackageID)
+
+	' Let the user select one of the existing UC-es or create a new one.
+	dim userSelection : userSelection = SelectElementTagFromTree( _
+		"Selecteer een workflow","TFCS_Workflow", _
+		"WorkflowType",tagValues,model.Name,dfltTagValue,True)
+	if userSelection = ""  then 
+		EAST.LogInfo("User cancelled selection")
+		EAST.LogEnd("SelectWorkflow")
+		exit function 
+	end if
+	
+	dim uc, ucActivity
+	if left(userSelection,3) = "NEW" then
+		' User opted to create a new workflow => userselection is in format: NEW<model>.<workflowtype>)
+		dim pos : pos=InStrRev(userSelection,".")
+		dim dropFlowType : dropFlowType = Mid(userSelection,pos+1)
+		dim modelName : modelName= Mid(userSelection,4,pos-4)
+		Set ucActivity = CreateWorkFlowForModel(dgm,dropFlowType,getWorkflowPrefix(dropFlowType),modelName)
+		if ucActivity is nothing then 
+			EAST.LogInfo("User cancelled creation of new workflow")
+			EAST.LogEnd("SelectWorkflow")
+			exit function 
+		end if
+		EAST.LogInfo("Created new workflow ('"+ucActivity.Name+"')")
+		Set SelectWorkflow = ucActivity.Elements.GetByName(ucActivity.Name)
+	else					
+		' User selected existing workflow
+		EAST.LogInfo("User selected existing workflow")
+		set SelectWorkflow = GetElementByGUID(userSelection)
+	end if
+	EAST.LogEnd("SelectWorkflow")
+end function
+
+'----------------------------------------------------------------------------------------------------------------------
+' Let the user select/create an element to drop on the diagram
+'----------------------------------------------------------------------------------------------------------------------
+function SelectElementForDropOnDiagram (dgm,eltDropped,stereoType,stereotypeName,packageName)
+	EAST.LogStart("SelectElementForDropOnDiagram")
+	set SelectElementForDropOnDiagram = nothing
+
+	' In the selectiontree dialog, open the model the diagram belongs to 
+	' (this is most likely the model the user wishes to select/create elements in)
+	dim model : set model = EAST.GetModelForPackage(dgm.PackageID)
+	
+	' Let the use make his choice
+	dim userSelection : userSelection = SelectElementFromTree( _
+		"Selecteer een "+stereotypeName,stereotype,stereotypeName, _
+		model.Name,True,eltDropped)
+	if userSelection = ""  then 
+		EAST.LogInfo("User cancelled selection")
+		EAST.LogEnd("SelectElementForDropOnDiagram")
+		set replaceDroppedBy = nothing
+		exit function 
+	end if
+	
+	if left(userSelection,3) = "NEW" then
+		' User opted to create a new element
+		' userselection is in format: NEW<model>.<element type>)
+		dim pos : pos=InStrRev(userSelection,".")
+		dim modelName : modelName= Mid(userSelection,4,pos-4)
+		
+		' Iso creating a new element move the dropped one
+		Dim thePackage : 
+		set thePackage = GetPrivatePackage(modelName,packageName)
+
+		' Get the name for the new element
+		dim Name: Name = EAST.InputBox("Omschrijving "+stereotypeName+" : ","Toevoegen "+stereotypeName,"Mijn "+stereotypeName)
+		if Name = "" then 
+			EAST.LogInfo("User cancelled creation of new "+stereotypeName)
+			EAST.LogEnd("SelectElementForDropOnDiagram")
+			set replaceDroppedBy = nothing
+			exit function 
+		end if
+		
+		eltDropped.Name = Name
+		eltDropped.PackageID = thePackage.PackageID
+		eltDropped.ParentID = 0
+		thePackage.Elements.Refresh()
+		eltDropped.Update()
+		EAST.LogInfo("Created new "+stereotypeName)
+		set SelectElementForDropOnDiagram = eltDropped
+	else					
+		' User selected existing 
+		EAST.LogInfo("User selected existing "+stereotypeName)
+		set SelectElementForDropOnDiagram = GetElementByGUID(userSelection)
+		EAST.LogInfo("Need to replace dropped element with new one")
+	end if
+	EAST.LogEnd("SelectElementForDropOnDiagram")
+end function
+
+function AddClassifierToDropOnDiagram (dgm,eltDropped,stereoType,stereotypeName,packageName)
+	EAST.LogStart("AddClassifierToDropOnDiagram")
+	set AddClassifierToDropOnDiagram = nothing
+
+	' In the selectiontree dialog, open the model the diagram belongs to 
+	' (this is most likely the model the user wishes to select/create elements in)
+	dim model : set model = EAST.GetModelForPackage(dgm.PackageID)
+	
+	' Let the use make his choice
+	dim userSelection : userSelection = SelectElementFromTree( _
+		"Selecteer een "+stereotypeName,stereotype,stereotypeName, _
+		model.Name,True,nothing)
+	if userSelection = ""  then 
+		EAST.LogInfo("User cancelled selection")
+		EAST.LogEnd("AddClassifierToDropOnDiagram")
+		set replaceDroppedBy = nothing
+		exit function 
+	end if
+	
+	if left(userSelection,3) = "NEW" then
+		' User opted to create a new element
+		' userselection is in format: NEW<model>.<element type>)
+		dim pos : pos=InStrRev(userSelection,".")
+		dim modelName : modelName= Mid(userSelection,4,pos-4)
+		
+		' Iso creating a new element move the dropped one
+		Dim thePackage : 
+		set thePackage = GetPrivatePackage(modelName,packageName)
+
+		' Get the name for the new element
+		dim Name: Name = EAST.InputBox("Omschrijving "+stereotypeName+" : ","Toevoegen "+stereotypeName,"Mijn "+stereotypeName)
+		if Name = "" then 
+			EAST.LogInfo("User cancelled creation of new "+stereotypeName)
+			EAST.LogEnd("AddClassifierToDropOnDiagram")
+			exit function 
+		end if
+		
+		Dim classifier : 
+		set classifier = thePackage.elements.AddNew("", "TFCS::"+stereotype ) 
+		classifier.Name = Name
+		thePackage.Elements.Refresh()
+		if classifier.isComposite then
+			Dim compDgm : 
+			set compDgm = classifier.CompositeDiagram
+			compDgm.Name = Name
+			compDgm.update()
+		end if
+		classifier.Update()
+		
+		EAST.LogInfo("Created new "+stereotypeName)
+		set AddClassifierToDropOnDiagram = classifier
+	else					
+		' User selected existing 
+		EAST.LogInfo("User selected existing "+stereotypeName)
+		set AddClassifierToDropOnDiagram = GetElementByGUID(userSelection)
+		EAST.LogInfo("Need to replace dropped element with new one")
+	end if
+	EAST.LogEnd("AddClassifierToDropOnDiagram")
+end function
+
+function UpdateDroppedElement(dgm, eltDropped)
+	EAST.LogStart("UpdateDroppedElement")
+	set UpdateDroppedElement = nothing
+	
+	dim model : set model = EAST.GetModelForPackage(dgm.PackageID)
+	dim answer
+	dim parent: set parent = GetElementByID(dgm.ParentID)
+	select case eltDropped.StereoType 
+		case "TFCS_ActivityInitial"
+			eltDropped.Name = ""
+			EAST.LogInfo("TFCS_ActivityInitial => cleared text")
+		case "TFCS_ActivityFinal" 
+			eltDropped.Name = ""
+			EAST.LogInfo("TFCS_ActivityFinal => cleared text")
+		case "TFCS_Event" 
+			answer = EAST.InputBox("Naam","Nieuw event",eltDropped.name)
+			if answer = empty or answer = "" then 
+				EAST.LogInfo("user cancelled")
+				EAST.LogEnd("UpdateDroppedElement")
+				set replaceDroppedBy = nothing
+				exit function 
+			end if
+			eltDropped.Name = answer
+			EAST.LogInfo("TFCS_Event => added text")
+'		case "TFCS_Actor" 
+'			answer = EAST.InputBox("Naam","Nieuwe actor",eltDropped.name)
+'			if answer = empty or answer = "" then exit function end if
+'			dim thePackage : set thePackage = GetPrivatePackage(model.Name,GEN__PCK_ACTORS)
+'			eltDropped.ParentID = thePackage.PackageID
+'			eltDropped.PackageID = thePackage.PackageID
+'			eltDropped.Name = answer
+'			thepackage.elements.refresh()
+		case "TFCS_IntermediateResult" 
+			answer = EAST.InputBox("Naam","Nieuw tussenresultaat",eltDropped.name)
+			if answer = empty or answer = "" then 
+				EAST.LogInfo("user cancelled")
+				EAST.LogEnd("UpdateDroppedElement")
+				set replaceDroppedBy = nothing
+				exit function 
+			end if
+			eltDropped.Name = answer
+			EAST.LogInfo("TFCS_IntermediateResult => added text")
+		case "TFCS_AtomicAction" 
+			answer = EAST.InputBox("Naam","Nieuwe stap",eltDropped.name)
+			if answer = empty or answer = "" then 
+				EAST.LogInfo("user cancelled")
+				EAST.LogEnd("UpdateDroppedElement")
+				set replaceDroppedBy = nothing
+				exit function 
+			end if
+			eltDropped.Name = answer
+			EAST.LogInfo("TFCS_AtomicAction => added text")
+		case else
+			EAST.LogInfo(eltDropped.StereoType+" => unaltered")
+	end select
+
+	eltDropped.Update()
+		
+	set UpdateDroppedElement = eltDropped
+	EAST.LogEnd("UpdateDroppedElement")
+end function

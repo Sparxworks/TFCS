@@ -1,0 +1,551 @@
+option explicit
+
+' Working directory for TFCS
+const TFCSBASEDIR = "d:/TFCS/Test"
+const MNU_TFCSMAIN = "-EAST"
+
+' Types of workflows in the TFCS meta-model
+const FLOWTYPE_WF = "BedrijfsProces"
+const FLOWTYPE_WI = "WerkInstructie"
+const FLOWTYPE_UC = "UseCase"
+
+'----------------------------------------------------------------------------------------------------------------------
+' DBMS specific settings (used in TFCS_SQL and TFCS_VALSQL)
+' Change according to the DBMS that is used
+'----------------------------------------------------------------------------------------------------------------------
+
+dim xWCx 		' wildcard
+dim xUCASEx 	' convert text to uppercase
+dim xMIDx		' get substring
+dim xMEMOx		' handling memo/clob fields
+
+' .EAP (MSAccess)
+
+xWCx = "*"	
+xUCASEx = "ucase"	
+xMIDx = "mid"
+xMEMOx = ""
+function xIfNullx(a,b)
+	xIfNullx = "IIF(ISNULL("+a+"),"+b+","+a+")"
+end function
+function xInStrx(start,s1,s2)
+	xInStrx = "InStr("+start+","+s1+","+s2+")"
+end function
+
+' Oracle
+
+'xWCx = "%"			
+'xUCASEx = "Upper"
+'xMIDx = "Substr"
+'xMEMOx = "dbms_lob."
+'
+'function IfNull(a,b)
+'	IfNull = "nvl("+a+","+b+")"
+'end function
+'
+'function InStr(start,s1,s2)
+'	InStr = "InStr("+s1+","+s2+","+start+")"
+'end function
+
+'----------------------------------------------------------------------------------------------------------------------
+' SQL statements and supporting methods for reporting
+'----------------------------------------------------------------------------------------------------------------------
+
+dim sqlISSs: sqlISSs = "select left(o.name,100) as label, o.object_id as ID from t_object o " + _
+	" where o.stereotype in ('TFCS_Issue','TFCS_ReviewComment','TFCS_Ambiguity') order by o.stereotype,o.name"
+dim sqlTBDs: sqlTBDs = "select left(o.name,100) as label, o.object_id as ID from t_object o where o.stereotype = 'TFCS_TBD' order by o.name"
+dim sqlDRs: sqlDRs = "select left(o.name,100) as label, o.object_id as ID from t_object o where o.stereotype = 'TFCS_DomainRule' order by o.name"
+dim sqlDOs: sqlDOs = "select o.name as label, o.object_id as ID from t_object o where o.stereotype = 'TFCS_DomainObject' order by o.name"
+dim sqlACTs: sqlACTs = "select o.name as label, o.object_id as ID from t_object o where o.stereotype = 'TFCS_Actor' order by o.name"
+dim sqlWFs: sqlWFs = "select o.name as label, o.object_id as ID from t_object o where o.stereotype = 'TFCS_Workflow' order by o.name"
+dim sqlAUTs: sqlAUTs = "select left(o.name,100) as label, o.object_id as ID rom t_object o where o.stereotype = 'TFCS_Authorisation' order by o.name"
+dim sqlREQs: sqlREQs = "select left(o.name,100) as label, o.object_id as ID "+ _
+	" from t_object o where o.stereotype in ('TFCS_NFR','TFCS_Requirement') order by o.stereotype, o.name"
+dim sqlLAWs: sqlLAWs = "select left(o.name,100) as label, o.object_id as ID "+ _
+	" from t_object o where o.stereotype = 'TFCS_Legislation' order by o.stereotype, o.name"
+dim sqlRFCs: sqlRFCs = "select left(o.name,100) as label, o.object_id as ID "+ _
+	" from t_object o where o.stereotype = 'TFCS_Request' order by o.stereotype, o.name"
+	
+' All elements of type workflow, domainobject, domainrule
+dim sqlCOREs: sqlCOREs = "select left(o.name,100) as label, o.object_id as ID "+ _
+	" from t_object o where "+ _
+	" o.stereotype in ('TFCS_Workflow','TFCS_DomainObject','TFCS_DomainRule') order by o.stereotype, o.name"
+
+' Workflows referenced by WF
+dim sqlWFReferencedByWF: sqlWFReferencedByWF = "select distinct uc.object_id as ROWID, r.object_id as COLID, left(conn.stereotype,1) as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+"		,t_connector conn  "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Workflow' "+ _
+" 		and uc.object_id = conn.start_object_id and r.object_id = conn.end_object_id"+ _
+" 		and conn.stereotype in ('extend','include')"+ _
+" 		and uc.object_id <> r.object_id"
+
+' Workflows referencing WF
+dim sqlWFReferencingWF: sqlWFReferencingWF = "select distinct uc.object_id as ROWID, r.object_id as COLID, left(conn.stereotype,1) as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+"		,t_connector conn  "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Workflow' "+ _
+" 		and r.object_id = conn.start_object_id and uc.object_id = conn.end_object_id"+ _
+" 		and conn.stereotype in ('extend','include')"+ _
+" 		and uc.object_id <> r.object_id"
+
+' Workflows implementing requirement and vice versa
+dim sqlWFImplementingREQ: sqlWFImplementingREQ = "select distinct r.object_id as ROWID, uc.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype in ('TFCS_NFR','TFCS_Requirement')"
+dim sqlREQImplementedByWF: sqlREQImplementedByWF = "select distinct uc.object_id as ROWID, r.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype in ('TFCS_NFR','TFCS_Requirement')"
+
+' Workflows implementing legislation and vice versa
+dim sqlWFImplementingLAW: sqlWFImplementingLAW = "select distinct r.object_id as ROWID, uc.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Legislation'"
+dim sqlLAWImplementedByWF: sqlLAWImplementedByWF = "select distinct uc.object_id as ROWID, r.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Legislation'"
+
+' Workflows involving actor
+dim sqlACTInvolvedInWF: sqlACTInvolvedInWF = "select distinct uc.object_id as ROWID, a.object_id as COLID, 'X' as XREF"+ _
+" 	from t_object uc "+ _
+" 		,t_object a "+ _
+"		,t_connector conn  "+ _
+" 	where uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and a.stereotype = 'TFCS_Actor' "+ _
+" 		and a.object_id = conn.start_object_id and uc.object_id = conn.end_object_id"+ _
+" 		and conn.connector_type = 'UseCase'"
+
+' Core model objects involved in RFC
+dim sqlCOREAffectedByRFC: sqlCOREAffectedByRFC = "select distinct r.object_id as ROWID, o.object_id as COLID, 'X' as XREF"+ _
+" 	from t_object o "+ _
+" 		,t_object r "+ _
+"		,t_connector conn  "+ _
+" 	where o.stereotype in ('TFCS_Workflow','TFCS_DomainObject','TFCS_DomainRule')  "+ _
+" 		and r.object_id = conn.start_object_id and o.object_id = conn.end_object_id"+ _
+" 		and r.stereotype = 'TFCS_Request'"
+
+' Requirements part of requirement
+dim sqlREQPartOfREQ: sqlREQPartOfREQ = "select distinct r.object_id as ROWID, o.object_id as COLID, 'X' as XREF"+ _
+" 	from t_object o "+ _
+" 		,t_object r " + _
+" 	where o.stereotype in ('TFCS_NFR','TFCS_Requirement')  "+ _
+" 		and o.parentid = r.object_id "+ _
+" 		and r.stereotype in ('TFCS_NFR','TFCS_Requirement')"
+
+' Law part of law
+dim sqlLAWPartOfLAW: sqlLAWPartOfLAW = "select distinct r.object_id as ROWID, o.object_id as COLID, 'X' as XREF"+ _
+" 	from t_object o "+ _
+" 		,t_object r " + _
+" 	where o.stereotype = 'TFCS_Legislation'  "+ _
+" 		and o.parentid = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Legislation'"
+
+' All domainobjects that have a create,read,update,delete or input dependency with a WF
+dim sqlDOInvolvedInWF: sqlDOInvolvedInWF = _
+"	select distinct uc.object_id as ROWID, do.object_id as COLID, 'X'  as XREF"+ _
+"		from t_object uc "+ _
+"			,t_connector conn  "+ _
+"			,t_object doi "+ _
+"			,t_object do "+ _
+"		where uc.stereotype = 'TFCS_Workflow' "+ _
+"			and (uc.object_id = conn.start_object_id and doi.object_id = conn.end_object_id and conn.stereotype in ('update','create','delete'))"+ _
+"			and doi.classifier = do.object_id"+ _
+"			and do.stereotype = 'TFCS_DomainObject' "+ _
+"	union"+ _
+"	select distinct uc.object_id as ROWID, do.object_id as COLID, 'X'  as XREF"+ _
+"		from t_object uc "+ _
+"			,t_connector conn  "+ _
+"			,t_object doi "+ _
+"			,t_object do "+ _
+"		where uc.stereotype = 'TFCS_Workflow' "+ _
+"			and (doi.object_id = conn.start_object_id and uc.object_id = conn.end_object_id)"+ _
+"			and doi.classifier = do.object_id"+ _
+"			and do.stereotype = 'TFCS_DomainObject' "
+
+' All domainrules relating to domainobjects that have a create,read,update,delete or input dependency with a WF
+dim sqlDRInvolvedInWF: sqlDRInvolvedInWF = _
+"	select distinct uc.object_id as ROWID, dr.object_id as COLID, 'X'  as XREF"+ _
+"		from t_object uc "+ _
+"			,t_connector conn  "+ _
+"			,t_object doi "+ _
+"			,t_object do "+ _
+"			,t_connector dor"+ _
+"			,t_object dr"+ _
+"		where uc.stereotype = 'TFCS_Workflow' "+ _
+"			and (uc.object_id = conn.start_object_id and doi.object_id = conn.end_object_id and conn.stereotype in ('update','create','delete'))"+ _
+"			and doi.classifier = do.object_id"+ _
+"			and do.stereotype = 'TFCS_DomainObject' "+ _
+"			and (dr.object_id = dor.start_object_id and do.object_id = dor.end_object_id )" + _
+"			and dr.stereotype = 'TFCS_DomainRule' " + _
+"	union"+ _
+"	select distinct uc.object_id as ROWID, dr.object_id as COLID, 'X'  as XREF"+ _
+"		from t_object uc "+ _
+"			,t_connector conn  "+ _
+"			,t_object doi "+ _
+"			,t_object do "+ _
+"			,t_connector dor"+ _
+"			,t_object dr"+ _
+"		where uc.stereotype = 'TFCS_Workflow' "+ _
+"			and (doi.object_id = conn.start_object_id and uc.object_id = conn.end_object_id)"+ _
+"			and doi.classifier = do.object_id"+ _
+"			and do.stereotype = 'TFCS_DomainObject' " + _
+"			and (dr.object_id = dor.start_object_id and do.object_id = dor.end_object_id )" + _
+"			and dr.stereotype = 'TFCS_DomainRule' "
+
+' Domain objects involved in a domainrule
+dim sqlDOReferencedByDR: sqlDOReferencedByDR = _
+"select distinct dr.object_id as ROWID, do.object_id as COLID, 'X' as XREF"+ _
+" 	from t_object do "+ _
+" 		,t_object dr "+ _
+"		,t_connector dor  "+ _
+" 	where do.stereotype = 'TFCS_DomainObject'  "+ _
+"		and (dr.object_id = dor.start_object_id and do.object_id = dor.end_object_id )" + _
+"		and dr.stereotype = 'TFCS_DomainRule' "
+
+' Autorisations used within a workflow
+dim sqlAUTReferencedByWF: sqlAUTReferencedByWF = _
+"select distinct uc.object_id as ROWID, r.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Authorisation'"
+
+' Autorisations used by actor
+dim sqlAUTUsedByACT: sqlAUTUsedByACT = _
+"select distinct a.object_id as ROWID, r.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 		,t_object a "+ _
+" 		,t_connector auc "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_Authorisation'" + _
+" 		and a.stereotype = 'TFCS_Actor' "+ _
+" 		and a.object_id = auc.start_object_id and uc.object_id = auc.end_object_id"
+
+' Workflows affected by an issue (bug, review comment, ambiguity)
+dim sqlWFAffectedByIssue: sqlWFAffectedByIssue = _
+"select distinct r.object_id as ROWID, uc.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype in ('TFCS_Issue','TFCS_ReviewComment','TFCS_Ambiguity')"
+
+' Workflows affected by a TBD
+dim sqlWFAffectedByTBD: sqlWFAffectedByTBD = _
+"select distinct r.object_id as ROWID, uc.object_id as COLID, 'X' as XREF"+ _
+" 	from t_diagram dd "+ _
+" 		,t_object uc "+ _
+" 		,t_diagramobjects ddo "+ _
+" 		,t_object r "+ _
+" 	where uc.parentid = dd.parentid "+ _
+" 		and uc.stereotype = 'TFCS_Workflow' "+ _
+" 		and ddo.diagram_id = dd.diagram_id "+ _
+"  		and ddo.object_id = r.object_id "+ _
+" 		and r.stereotype = 'TFCS_TBD'"
+
+'----------------------------------------------------------------------------------------------------------------------
+' Creates a dependency matrix report and opens it in XLS
+'
+' Parameters:
+' sqlAllRows 	- SQL returning LABEL and ID for each row in the matrix
+' sqlAllCols 	- SQL returning LABEL and ID for each column in the matrix
+' sqlRowsxCols	- SQL returning the relations between rows and columns, as ROWID,COLID and XREF (type of relation, currently ignored)
+' sqlRowsxRows	- optional SQL for reduction of transitive relations on row items
+' sqlColsxCols	- optional SQL for reduction of transitive relations on column items
+' fileName		- name of the XLS report (path is fixed and set to TFCS basedir/reports)
+'
+'----------------------------------------------------------------------------------------------------------------------
+dim tempDir: tempDir = TFCSBASEDIR+"/reports"
+sub CreateAndShowReport(sqlAllRows,sqlAllCols,sqlRowsxCols,sqlRowsxRows,sqlColsxCols,file)
+
+	' Create dependency matrix and dump to a CSV file
+	dim rowlabels: set rowlabels = EAST.ExecuteSQL(sqlAllRows, "")
+	dim collabels: set  collabels = EAST.ExecuteSQL(sqlAllCols, "")
+	dim xref: set xref = EAST.GetXReferences(sqlAllRows,sqlAllCols,sqlRowsxCols,sqlRowsxRows,sqlColsxCols)
+	Dim path : path = tempDir + "/" + file + ".txt"
+	Dim pathXLS : pathXLS = tempDir + "/" + file + ".xls"
+	Dim a : a = XRefDict2Array(xref)
+	if not Dump2CSV(a,rowlabels,collabels,path) then
+		exit sub
+	end if
+
+	' Load the CSV in Excel and format this.
+	Dim fso : set fso = CreateObject("Scripting.FileSystemObject")
+	If fso.FileExists(pathXLS) Then
+		On Error Resume Next
+		fso.DeleteFile pathXLS, True
+		If Err.Number <> 0 Then
+			EAST.MsgBox "De bewerking is afgebroken vanwege een fout bij het verwijderen "+vbCRLF+ _
+			"van het bestand '"+pathXLS+"'." _
+			+vbCRLF+vbCRLF+"Foutmelding: "+Err.Description _
+			,16,"Samenstellen rapport"
+			on error goto 0
+			exit sub
+		End If		
+	End If
+
+	Dim xls : set xls = CreateObject("Excel.Application")
+	xls.Visible = False
+
+	xls.Workbooks.OpenText path, , , 1, 1, , , , , , True, "|"
+	Dim wb : set wb = xls.ActiveWorkbook
+	xls.Rows("1:1").Select()
+	xls.Selection.Orientation = 90
+	xls.Selection.ColumnWidth = 3
+	xls.Columns("A:A").EntireColumn.AutoFit()
+	wb.SaveAs pathXLS, -4143
+	xls.Visible = true
+
+	' Remove the CSV file
+	If fso.FileExists(path) Then
+		fso.DeleteFile path, True
+	End If
+	
+	' Release handles to allow future garbage collection 
+	' (Can't quit Excel here since XLS must remain open)
+	set wb = nothing
+	set xls = nothing
+	set fso = nothing
+		
+End Sub
+
+' Dumps a 2D array to a CSV using pipeline symbol as separator
+function Dump2CSV(a, rowlabels, collabels, path)
+	Dump2CSV = false
+	Dim fso : set fso = CreateObject("Scripting.FileSystemObject")
+	On Error Resume Next
+	Dim csv : set csv = fso.CreateTextFile(path, True)
+	If Err.Number <> 0 Then
+		EAST.MsgBox "De bewerking is afgebroken vanwege een fout bij het aanmaken "+vbCRLF+ _
+			"van het bestand '"+path+"'"+ _
+			vbCRLF+vbCRLF+"Foutmelding: "+Err.Description _
+			,16,"Samenstellen rapport"
+		on error goto 0
+		exit function
+	End If		
+
+	Dim label
+	Dim line : line = ""
+	For Each label In collabels.items
+		line = line + "|" + label.item("LABEL")
+	Next
+	csv.write(line+ vbCrLf)
+
+	Dim i, j
+	For i = 0 To UBound(a, 1)
+		line = rowlabels.item(i).item("LABEL")
+		For j = 0 To UBound(a, 2)
+			if a(i,j) = 0 then
+				line = line + "|" 
+			else
+				line = line + "|" + a(i, j)
+			end if
+		Next
+		line = line + vbCrLf
+		csv.write(line)
+	Next
+	csv.close()
+	Dump2CSV = true
+End function
+' Converts a Xref dictionary (output from GetXReferencesFor) to a 2D array
+Function XRefDict2Array(ByVal dict)
+	Dim a
+
+	Dim row, column
+	Dim i : i = 0
+	For Each row In dict.Items
+		if i = 0 then
+			ReDim a(dict.count - 1, row.count-1)
+		end if
+		Dim j : j = 0
+		For Each column In row.keys
+			If column <> "HEADER" Then
+				a(i, j) = row.item(column)
+				j = j + 1
+			End If
+		Next
+		i = i + 1
+	Next
+	XRefDict2Array = a
+End Function
+
+
+
+' Dumps a 2D array to the output
+Sub Dump2DArray(ByVal a)
+	Dim i, j
+	For i = 0 To UBound(a, 1)
+		Dim msg : msg = "['" + a(i, 0)
+		For j = 1 To UBound(a, 2)
+			msg = msg + "','" + a(i, j)
+		Next
+		msg = msg + "']"
+		EAST.LogInfo(msg)
+	Next
+End Sub
+
+'----------------------------------------------------------------------------------------------------------------------
+' Reports on relationships (main menu item 'Rapportages')
+'----------------------------------------------------------------------------------------------------------------------
+'option explicit
+
+'!INC TFCS_Support.TFCS_Constants
+'!INC TFCS_Support.TFCS_Traceability
+
+const MNU_REPORTS = "-Rapportages"
+
+const MNU_REP_REQ= "-Requirements"
+const MNU_REQxWF = "Workflows die een (niet)functionele eis implementeren"
+const MNU_LAWxWF = "Workflows die een wetgeving implementeren"
+const MNU_RFCxALL = "Onderdelen geraakt door een RFC"
+
+const MNU_REP_WF = "-Workflows"
+const MNU_WFxREQ = "Requirements geraakt door workflow"
+const MNU_WFxLAW = "Wetgeving geraakt door workflow"
+const MNU_WFxACT = "Actoren betrokken bij workflow"
+const MNU_WFxDO = "Domeinobjecten betrokken bij workflow"
+const MNU_WFxDR = "Domeinregels geraakt door workflow"
+const MNU_WFxWF = "Workflows gebruikt binnen workflow"
+
+const MNU_REP_DIV = "-Diversen"
+const MNU_DRxDO = "Domeinobjecten betrokken bij domeinregel"
+const MNU_WFxAUT = "Authorisaties gebruikt binnen workflow"
+const MNU_ACTxAUT = "Authorisaties gebruikt door actor"
+const MNU_ISSxWF = "Workflows geraakt door issue"
+const MNU_TBDxWF = "Workflows geraakt door open punt"
+
+
+' Add a menuitem to the main menu
+Function EA_GetMenuItems(MenuLocation, MenuName) 
+	dim items
+	if MenuLocation = "MainMenu" then
+		if(MenuName = "-EA Scripting Toolkit") then
+			redim menus(1)
+			menus(0) = "-"
+			menus(1) = MNU_REPORTS
+			EA_GetMenuItems = menus
+		elseif MenuName = MNU_REPORTS then
+			redim items(2)
+			items(0) = MNU_REP_REQ
+			items(1) = MNU_REP_WF
+			items(2) = MNU_REP_DIV
+			EA_GetMenuItems = items
+		elseif MenuName = MNU_REP_REQ then
+			redim items(2)
+			items(0) = MNU_REQxWF
+			items(1) = MNU_LAWxWF
+			items(2) = MNU_RFCxALL
+			EA_GetMenuItems = items
+		elseif MenuName = MNU_REP_WF then
+			redim items(5)
+			items(0) = MNU_WFxREQ
+			items(1) = MNU_WFxLAW
+			items(2) = MNU_WFxACT
+			items(3) = MNU_WFxDO
+			items(4) = MNU_WFxDR
+			items(5) = MNU_WFxWF
+			EA_GetMenuItems = items
+		elseif MenuName = MNU_REP_DIV then
+			redim items(4)
+			items(0) = MNU_DRxDO
+			items(1) = MNU_WFxAUT
+			items(2) = MNU_ACTxAUT
+			items(3) = MNU_ISSxWF
+			items(4) = MNU_TBDxWF
+			EA_GetMenuItems = items
+		end if 
+	end if
+end Function
+
+Sub EA_MenuClick( MenuName , ItemName )
+	select case itemName 
+' Requirements
+		case MNU_REQxWF
+			CreateAndShowReport sqlREQs,sqlWFs,sqlWFImplementingREQ,nothing,sqlWFReferencingWF,MNU_REQxWF
+		case MNU_LAWxWF
+			CreateAndShowReport sqlLAWs,sqlWFs,sqlWFImplementingLAW,nothing,sqlWFReferencingWF,MNU_LAWxWF
+		case MNU_RFCxALL
+			CreateAndShowReport sqlRFCs,sqlCOREs,sqlCOREAffectedByRFC,nothing,nothing,MNU_RFCxALL
+' Workflows		
+		case MNU_WFxREQ
+			CreateAndShowReport sqlWFs,sqlREQs,sqlREQImplementedByWF,nothing,sqlREQPartOfREQ,MNU_REQxWF
+		case MNU_WFxLAW
+			CreateAndShowReport sqlWFs,sqlLAWs,sqlLAWImplementedByWF,nothing,sqlLAWPartOfLAW,MNU_WFxLAW
+		case MNU_WFxACT
+			CreateAndShowReport sqlWFs,sqlACTs,sqlACTInvolvedInWF,sqlWFReferencedByWF,nothing,MNU_WFxACT
+		case MNU_WFxDO
+			CreateAndShowReport sqlWFs,sqlDOs,sqlDOInvolvedInWF,sqlWFReferencedByWF,nothing,MNU_WFxDO
+		case MNU_WFxDR
+			CreateAndShowReport sqlWFs,sqlDRs,sqlDRInvolvedInWF,sqlWFReferencedByWF,nothing,MNU_WFxDR
+		case MNU_WFxWF
+			CreateAndShowReport sqlWFs,sqlWFs,sqlWFReferencedByWF,nothing,sqlWFReferencedByWF,MNU_WFxWF
+' Diversen
+		case MNU_DRxDO
+			CreateAndShowReport sqlDRs,sqlDOs,sqlDOReferencedByDR,nothing,nothing,MNU_DRxDO
+		case MNU_WFxAUT
+			CreateAndShowReport sqlWFs,sqlAUTs,sqlAUTReferencedByWF,nothing,nothing,MNU_WFxAUT  
+		case MNU_ACTxAUT
+			CreateAndShowReport sqlACTs,sqlAUTs,sqlAUTUsedByACT,nothing,nothing,MNU_ACTxAUT  
+		case MNU_ISSxWF
+			CreateAndShowReport sqlISSs,sqlWFs,sqlWFAffectedByIssue,nothing,sqlWFReferencingWF,MNU_ISSxWF
+		case MNU_TBDxWF
+			CreateAndShowReport sqlTBDs,sqlWFs,sqlWFAffectedByTBD,nothing,sqlWFReferencingWF,MNU_TBDxWF
+	end select
+end sub
