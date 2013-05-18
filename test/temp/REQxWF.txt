@@ -1,5 +1,0 @@
-|BP-000 - Mijn workflow|BP-x1|BP-x2
-Mijn Authorisatie|1|0|0
-Mijn 2|1|0|1
-Mijn 1|1|0|0
-Mijn 3|1|1|0
